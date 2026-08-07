@@ -1,0 +1,28 @@
+# 赛事数据，受《选手参赛协议》第八条约束，不得再分发
+data/
+*.csv
+*.zip
+
+# 大体量派生产物（由赛事数据算出，同样不得公开）
+*.npy
+*.npz
+*.pkl
+*.pt
+prediction*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# 临时
+*.bak
+*.tmp
+~$*
+
+# harness 会话日志，含对话内容，绝不公开
+_logs/
+**/_logs/
+sessions.jsonl
