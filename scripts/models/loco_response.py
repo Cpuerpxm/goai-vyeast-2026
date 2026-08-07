@@ -307,13 +307,13 @@ def main() -> None:
     gain = ecfp["fc_pcc"] - base["fc_pcc"]
     gain_o = orc["fc_pcc"] - base["fc_pcc"]
     gain_s = slf["fc_pcc"] - base["fc_pcc"]
-    a(f"  【整条化合物特异路线的天花板】用留出化合物自己的平均残差：{gain_s:+.4f}")
-    a(f"    换算到总分约 {0.25 * gain_s:+.4f}（指标 2 权重 25%）。")
-    a("    任何「给每个化合物预测一条响应谱」的模型都不可能超过这个数。")
-    a("    对比：绝对骨架 b̂ 从满秩 ridge 换成 K₀=16 低秩，一步就是 +0.0287 总分。")
+    a(f"  【整条化合物特异路线的上限】用留出化合物自己的平均残差：{gain_s:+.4f}")
+    a(f"    按指标 2 的 25% 权重折成总分约 {0.25 * gain_s:+.4f}。")
+    a("    ⚠ 该折算假设其余五项不受影响，未经检验；它与总分口径的 +0.0287 不可直接比大小。")
+    a("    任何「给每个化合物预测一条响应谱」的模型都不可能超过 fc_pcc 上的这个数。")
     a("")
     a(f"  ECFP 相对仅上下文的 fc_pcc 增益：{gain:+.4f}")
-    a(f"  神谕残差照搬的增益（作弊上限）：{gain_o:+.4f}")
+    a(f"  神谕残差照搬的增益（不可实现，用于验证检验有功效）：{gain_o:+.4f}")
     if gain_o < 0.005:
         a("  ⚠ **连神谕都拿不到增益** → 问题不在化合物表示，而在"
           "「b̂ + 化合物残差」这个架构或评分口径本身。")
@@ -359,6 +359,30 @@ def main() -> None:
     with open(p, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(txt)
     print(f"\n[写出] {p}")
+
+    # 机器可读副本：权威表要收录 LOCO 的数，不能靠人从 report.txt 里抄。
+    # 2026-08-07 外审发现文中的 +0.0617 / +0.0237 / −0.0004 都不在注册范围内，
+    # 于是数字核对脚本对它们完全无感——这就是那次漏检的根因。
+    import json as _json
+    payload = {
+        "context_only_fc_pcc": base["fc_pcc"],
+        "ecfp_fc_pcc": ecfp["fc_pcc"],
+        "gain_ecfp": gain,
+        "gain_oracle_neighbor": gain_o,
+        "gain_oracle_self": gain_s,
+        "gain_oracle_self_scaled_to_total": 0.25 * gain_s,
+        "n_folds": args.folds,
+        "n_compounds": len(compounds),
+        "n_perm": args.n_perm,
+        "shuffled_gains": [float(x) for x in perms] if args.n_perm > 0 else [],
+        "shuffled_mean": float(perms.mean()) if args.n_perm > 0 else None,
+        "shuffled_max": float(perms.max()) if args.n_perm > 0 else None,
+        "_note": "增益均为 fc_pcc（指标 2）口径，不是六项总分。折成总分的换算未经检验。",
+    }
+    pj = os.path.join(OUT_DIR, "loco.json")
+    with open(pj, "w", encoding="utf-8", newline="\n") as fh:
+        _json.dump(payload, fh, ensure_ascii=False, indent=1)
+    print(f"[写出] {pj}")
 
 
 if __name__ == "__main__":

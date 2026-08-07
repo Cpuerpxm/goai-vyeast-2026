@@ -21,6 +21,7 @@ import subprocess
 import sys
 import warnings
 from dataclasses import asdict
+from datetime import datetime
 
 import numpy as np
 
@@ -110,8 +111,21 @@ def baselines_and_cfree(ctx, cfg) -> dict:
         ("B4 ridge 响应", b4_ridge(ctx, fb)),
     ]:
         out["oracle_C_based"][lab] = ev.flatten(ev.evaluate(y, ctx, val, cfg))
+    # 化学近邻（Tanimoto）也要进表。它出现在文档的基线阶梯里，
+    # 却一直不在权威表内，成了没有出处的孤儿数字（2026-08-07 外审）。
+    from models.baselines import b3_chem_neighbor
+    smi = os.path.join(paths.DATA_EXTERNAL, "compound_smiles.csv")
+    p3, why = b3_chem_neighbor(ctx, fb, smi)
+    if p3 is not None:
+        out["oracle_C_based"]["B3 化学近邻响应"] = ev.flatten(ev.evaluate(p3, ctx, val, cfg))
+    else:
+        print(f"  ⚠ 化学近邻基线跳过：{why}")
+
     p3o, _ = b3o_oracle_neighbor(ctx, fb, val)
-    out["oracle_C_based"]["B3o 神谕近邻(作弊)"] = ev.flatten(ev.evaluate(p3o, ctx, val, cfg))
+    # 命名口径（2026-08-07 修）：原称「作弊」不准确。它并非违规操作，
+    # 而是给定「已知每个测试样本真值、可在验证集里取最近邻」这一不可实现的
+    # 前提下的成绩，衡量的是响应空间本身能承载多少信号，故称响应空间上限。
+    out["oracle_C_based"]["B3o 神谕近邻(响应空间上限)"] = ev.flatten(ev.evaluate(p3o, ctx, val, cfg))
 
     mu_g = b0_global_mean(ctx)[0]
     alpha_best, alpha_val = None, -np.inf
@@ -139,6 +153,16 @@ def baselines_and_cfree(ctx, cfg) -> dict:
             y_best = y
     out["paired_bootstrap_lowrank_vs_fullrank"] = ev.grouped_bootstrap_paired(
         y_full, y_best, ctx, val, n_boot=60, cfg=cfg)
+
+    # 分场景：总分是四类 val 混在一起的加权和，看不出模型在哪类外推上垮。
+    # 评审必问"S2 未见菌株占测试集一半，你在那上面怎么样"，故单列。
+    by = ev.evaluate_by_split(y_best, ctx, cfg)
+    out["submitted_model_by_split"] = {
+        r["split"]: {k: (None if k in ("split",) else
+                         (int(r[k]) if k.startswith("n") else float(r[k])))
+                     for k in by.columns if k != "split" and r[k] == r[k]}
+        for _, r in by.iterrows()
+    }
     return out
 
 
@@ -198,6 +222,52 @@ def confounding_and_missing(ctx) -> dict:
     }
 
 
+def entity_census(ctx) -> dict:
+    """化合物计数的四个口径。
+
+    文中37/43/46/54反复出现，读者极易当成同一个量前后矛盾。
+    这里一次算清，文档只许引用本节。
+    """
+    from data import loader
+    CONTROL_LABELS = {"Water", "DMSO", "Quality Control"}
+    tv = set(ctx.meta["perturbation_no_concentration"].astype(str))
+    te = set(loader.load_metadata("test")["perturbation_no_concentration"].astype(str))
+    tr_mask = (ctx.meta["split_final"] == "train").to_numpy() & ctx.treated
+    tr = set(ctx.meta.loc[tr_mask, "perturbation_no_concentration"].astype(str))
+    tv_nc, te_nc, tr_nc = tv - CONTROL_LABELS, te - CONTROL_LABELS, tr - CONTROL_LABELS
+    return {
+        "train_val_labels_incl_controls": len(tv),
+        "train_val_compounds": len(tv_nc),
+        "train_split_compounds": len(tr_nc),
+        "test_labels_incl_controls": len(te),
+        "test_compounds": len(te_nc),
+        "test_only_compounds": len(te_nc - tv_nc),
+        "response_matrix_rows": len(tr_nc),
+        "response_matrix_rank_cap": len(tr_nc) - 1,
+        "task_rank_hard_cap": len(tv_nc) - 1,
+        "_note": "bootstrap 的分组键是扰动标签，故报 train_val_labels_incl_controls；"
+                 "整化合物留出覆盖 train_val_compounds；响应矩阵行数是 train_split_compounds。",
+    }
+
+
+def ingest_loco() -> dict:
+    """收录 LOCO 的数，但**不重跑**——那是 8 折外层留出，代价太高。
+
+    2026-08-07 外审：文中 +0.0617 / +0.0237 / −0.0004 全不在注册范围内，
+    数字核对脚本对它们完全无感。这里按内容哈希收录 loco.json，
+    既进注册表，又能查出它是否比本表旧。
+    """
+    p = os.path.join(paths.RESULTS, "step9_loco", "loco.json")
+    if not os.path.exists(p):
+        return {"_missing": f"缺 {p}，先跑 scripts/models/loco_response.py"}
+    raw = open(p, "rb").read()
+    d = json.loads(raw.decode("utf-8"))
+    d["_source_file"] = os.path.relpath(p, paths.PROJECT_ROOT).replace("\\", "/")
+    d["_source_sha256"] = hashlib.sha256(raw).hexdigest()[:16]
+    d["_source_mtime"] = datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="seconds")
+    return d
+
+
 def main() -> None:
     cfg = ScorerConfig()
     ctx = ev.build_context(verbose=False)
@@ -227,6 +297,8 @@ def main() -> None:
     res["control_and_reliability"] = control_match_and_reliability(ctx, cfg)
     print("[权威表] 算混杂与缺失 …")
     res["confounding_and_missing"] = confounding_and_missing(ctx)
+    res["entity_census"] = entity_census(ctx)
+    res["loco"] = ingest_loco()
 
     # 数据实况
     with warnings.catch_warnings():

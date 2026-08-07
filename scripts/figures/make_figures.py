@@ -65,31 +65,24 @@ def save(fig, name: str) -> None:
 # ------------------------------------------------------------------ F1
 
 
+def _auth() -> dict:
+    """权威表是数字的唯一来源。图**不再自行重算**——
+
+    2026-08-07 外审发现：图生成于修复 B0 定义之前，比权威表旧了一整天，
+    F1/F4 上的数字与正文对不上。根因是图和正文各算各的。
+    改为图直接读 AUTHORITATIVE.json，图文同源，权威表一变图就跟着变。
+    """
+    import json
+    with open(os.path.join(paths.RESULTS, "AUTHORITATIVE.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 def fig1_shared_reference(ctx, cfg):
-    """共享参照污染：三个对照条件。"""
-    rng = np.random.default_rng(20260805)
-    rows = np.nonzero(ctx.treated & np.isfinite(ctx.D).any(axis=1)
-                      & ctx.rows(ev.VAL_SPLITS))[0]
-    train = (ctx.meta["split_final"] == "train").to_numpy()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        g = np.nanmean(ctx.X[train], axis=0, dtype=np.float64)
-    g = np.where(np.isfinite(g), g, np.nanmedian(g))
-    y = np.tile(g, (ctx.n, 1))
-
-    key = ctx.meta[CTX_KEYS].astype(str).agg("\x1f".join, axis=1).to_numpy()
-    p_ctx = rows.copy()
-    for k in np.unique(key[rows]):
-        idx = np.nonzero(key[rows] == k)[0]
-        if idx.size > 1:
-            p_ctx[idx] = rows[idx][rng.permutation(idx.size)]
-    p_glob = rng.permutation(rows)
-
-    def fc(cr):
-        dp = y[rows].astype(np.float64) - ctx.C[cr].astype(np.float64)
-        return float(np.nanmean(pcc_axis(ctx.D[rows], dp, cfg, axis=1)))
-
-    vals = [fc(rows), fc(p_ctx), fc(p_glob)]
+    """共享参照：三个对照条件。数值取自权威表。"""
+    sr = _auth()["shared_reference"]
+    vals = [sr["correct"]["sample_axis"],
+            sr["mismatch_same_context"]["sample_axis"],
+            sr["mismatch_global"]["sample_axis"]]
     labs = ["正确匹配\n（官方口径）", "错配到同条件\n的别的样本", "全局错配到\n随机样本"]
 
     fig, ax = plt.subplots(figsize=(6.2, 4.2))
@@ -97,23 +90,17 @@ def fig1_shared_reference(ctx, cfg):
     for b, v in zip(bars, vals):
         ax.text(b.get_x() + b.get_width() / 2, v + 0.004, f"{v:.4f}",
                 ha="center", fontsize=10, fontweight="bold")
-    ax.set_ylabel("指标 2 · 匹配对照原始 FC 的 PCC")
-    ax.set_ylim(0, max(vals) * 1.25)
+    ax.set_ylabel("指标 2 · 匹配对照原始 FC 的 PCC（样本轴）")
+    ax.set_ylim(0, max(vals) * 1.28)
     ax.set_title("对药物一无所知的模型，在指标 2 上仍得 0.18\n"
-                 "——分数几乎全部来自「与真值共享同一条真实对照」", pad=12)
-    # 分解画在右侧竖直方向，避免斜箭头横穿中间那根柱子
-    x_ann = 2.44
-    ax.set_xlim(-0.55, 3.05)
-    for v0, v1, col, lab in [(vals[0], vals[1], C_MAIN, "共享同一次测量"),
-                             (vals[1], vals[2], C_ALT, "共享同一实验条件")]:
-        ax.annotate("", xy=(x_ann, v0), xytext=(x_ann, v1),
-                    arrowprops=dict(arrowstyle="<->", color=col, lw=1.3))
-        ax.text(x_ann + 0.07, (v0 + v1) / 2, f"{lab}\n{v0 - v1:+.3f}",
-                va="center", color=col, fontsize=9)
-    for v in vals:
-        ax.plot([-0.4, x_ann], [v, v], ls=":", lw=.8, color="#CCC", zorder=0)
+                 "打断「与真值共享同一条真实对照」后大幅下降", pad=12)
+    # ⚠ 刻意不画「+0.102 / +0.074」这类分解箭头：
+    #   相关系数不具可加分解性，错配同时改变了协方差与分母，
+    #   三条件之差不能读作可相加的信号份额（2026-08-07 外审 Layer 1）。
+    ax.text(0.5, 0.94, "三条件之差不可读作可相加的信号份额", transform=ax.transAxes,
+            ha="center", fontsize=8.5, color="#777", style="italic")
     fig.text(0.01, -0.04, "预测 = 训练集全局均值谱（零药物知识）；评估于官方四类 val 的"
-             f"{len(rows)} 个处理样本。数据：scripts/audit/shared_reference_probe.py",
+             f"{sr['n_rows']}个处理样本。数值取自 results/AUTHORITATIVE.md。",
              fontsize=8, color="#555")
     save(fig, "F1_shared_reference")
     return vals
@@ -183,16 +170,18 @@ def fig3_reliability(ctx, cfg):
     for b, v in zip(bars, rho):
         ax.text(b.get_x() + b.get_width() / 2, v + 0.015, f"{v:.3f}",
                 ha="center", fontweight="bold")
-    ax.set_ylabel("同条件跨批次重测的相关 ρ")
+    ax.set_ylabel("跨板/来源复制对的操作性一致性 ρ")
     ax.set_ylim(0, 1.05)
     ax.axhline(1.0, color=C_GREY, ls=":", lw=1)
     ax.text(3.45, 1.005, "完全可重复", fontsize=8, color=C_GREY, ha="right")
-    ax.set_title("药物特异响应的测量可靠性极低\n"
-                 "绝对丰度重测相关 0.92，而 Δ 只有 0.12", pad=12)
-    fig.text(0.01, -0.06, f"复制对定义：同化合物 + 同菌株/培养基/温度/时间，且板号或数据"
+    ax.set_title("药物特异响应的跨批次操作性一致性很低\n"
+                 "绝对丰度 0.92，而 Δ 只有 0.12", pad=12)
+    fig.text(0.01, -0.19, f"复制对定义：同化合物 + 同菌株/培养基/温度/时间，且板号或数据"
              f"来源不同，共 {len(pairs)} 对。μ 仅由训练折计算。\n"
-             "ρ 低说明信噪比弱、复杂模型易过拟合；但因预测与真值共享同一条对照噪声，"
-             "√ρ 不可当作评分上限。数据：scripts/audit/noise_ceiling.py",
+             "ρ 低说明该口径下跨批次可重现的成分弱、复杂模型易过拟合；ρ 混合了测量噪声与"
+             "批次间真实差异，不是纯粹的仪器精度。\n"
+             "又因预测与真值共享同一条对照，√ρ 不可当作评分上限。"
+             "数据：scripts/audit/noise_ceiling.py",
              fontsize=8, color="#555")
     save(fig, "F3_reliability")
 
@@ -201,45 +190,47 @@ def fig3_reliability(ctx, cfg):
 
 
 def fig4_baseline_ladder():
-    """基线阶梯：可部署 vs oracle 分区。"""
-    df = pd.read_csv(os.path.join(paths.RESULTS, "step4_baselines",
-                                  "baseline_scores.csv"), index_col=0)
-    oracle = [("B1 Δ≡0（=对照）", df.loc["B1 Δ≡0（=对照）", "total"]),
-              ("B2 上下文均值 Δ", df.loc["B2 上下文均值 Δ", "total"]),
-              ("B3 化学近邻 Δ", df.loc["B3 化学近邻 Δ", "total"]),
-              ("B4 ridge Δ", df.loc["B4 ridge Δ", "total"]),
-              ("α=0.15 对照收缩", 0.3843)]
-    free = [("全局均值谱", 0.2589), ("逐蛋白 ridge（满秩）", 0.4406),
-            ("低秩 K0=16 + ridge", 0.4694)]
+    """基线阶梯：可部署形态 vs 需读对照的诊断基线。数值取自权威表。
 
-    fig, ax = plt.subplots(figsize=(7.4, 4.6))
-    ys, labs, cols = [], [], []
-    for n, v in oracle:
-        ys.append(v); labs.append(n); cols.append(C_GREY)
-    ys.append(np.nan); labs.append(""); cols.append("none")
-    for n, v in free:
-        ys.append(v); labs.append(n); cols.append(C_MAIN)
-    pos = np.arange(len(ys))
-    ax.barh(pos, ys, color=cols, height=0.62)
-    for p, v in zip(pos, ys):
-        if np.isfinite(v):
+    分两个面板而不是一张图叠两组：两组的推断前提根本不同，
+    共用一根 y 轴容易被读成一条可比的名次表。
+    B0 全局均值谱**不读对照**，因此只出现在下面板；权威表把它列在
+    oracle 组内是为了给那条阶梯一个起点，图里不能照抄那个分组。
+    """
+    m = _auth()["models"]
+    oracle = sorted([(k, v["total"]) for k, v in m["oracle_C_based"].items()
+                     if not k.startswith("B0 ")], key=lambda t: t[1])
+    free = sorted([(k, v["total"]) for k, v in m["c_free"].items()], key=lambda t: t[1])
+    xmax = max(v for _, v in oracle + free) * 1.20
+
+    fig, axes = plt.subplots(2, 1, figsize=(7.6, 5.4), sharex=True,
+                             gridspec_kw={"height_ratios": [len(oracle), len(free)],
+                                          "hspace": 0.32})
+    for ax, items, col, head in (
+        (axes[0], oracle, C_GREY,
+         "需要该样本的实测对照才能推断  y_pred = C + Δ_pred  · 仅作诊断"),
+        (axes[1], free, C_MAIN,
+         "推断时不接触任何对照  y_pred = b(metadata)  · 我方提交路线"),
+    ):
+        pos = np.arange(len(items))
+        ax.barh(pos, [v for _, v in items], color=col, height=0.6)
+        top = max(v for _, v in items)
+        for p, (_, v) in zip(pos, items):
             ax.text(v + 0.006, p, f"{v:.4f}", va="center", fontsize=9.5,
-                    fontweight="bold" if v == 0.4694 else "normal")
-    ax.set_yticks(pos)
-    ax.set_yticklabels(labs)
-    ax.invert_yaxis()
-    ax.set_xlabel("六项加权总分（本方复刻评分器，官方四类 val 划分）")
-    ax.set_xlim(0, 0.56)
-    ax.set_title("可提交模型反而高于不可提交的 oracle 基线", pad=12)
-    ax.text(0.50, 1.6, "需要读测试对照\n→ 不可提交", ha="center", fontsize=9,
-            color=C_GREY, bbox=dict(fc="white", ec=C_GREY, lw=.8, alpha=.9))
-    ax.text(0.50, 6.4, "C-free 可部署\n（推断不接触对照）", ha="center", fontsize=9,
-            color=C_MAIN, bbox=dict(fc="white", ec=C_MAIN, lw=.8, alpha=.9))
-    fig.text(0.01, -0.05, "上组模型形态为 y_pred = C + Delta_pred，推断时需该样本的真实对照；测试集对照位于"
-             "本方按分支 A 隔离的文件内，故仅作诊断。\n"
-             "下组为 y_pred = b(metadata)，含泄漏守卫。"
-             "数据：scripts/models/{baselines,baseline_cfree,select_k0}.py",
-             fontsize=8, color="#555")
+                    fontweight="bold" if v == top else "normal")
+        ax.set_yticks(pos)
+        ax.set_yticklabels([n for n, _ in items])
+        ax.invert_yaxis()
+        ax.set_xlim(0, xmax)
+        ax.set_title(head, fontsize=9.5, color=col, loc="left", pad=6)
+
+    axes[1].set_xlabel("六项加权总分（本方复刻评分器，官方四类 val 划分）")
+    fig.suptitle("不读测试对照的可部署模型，反而高于需读对照的诊断基线",
+                 fontsize=11, y=0.99)
+    fig.text(0.01, -0.06, "两组的推断前提不同，不是同一张名次表：上组在推断时需要该样本的实测对照，"
+             "在我方的保守假设下不作提交路线。\n"
+             "下组含泄漏守卫，确保预测不依赖对照。B0 全局均值谱不读对照，只列于下组。"
+             "数值取自 results/AUTHORITATIVE.md。", fontsize=8, color="#555")
     save(fig, "F4_baseline_ladder")
 
 
@@ -247,22 +238,30 @@ def fig4_baseline_ladder():
 
 
 def fig5_loco():
-    """LOCO：结构表示 vs 打乱对照 vs 两级神谕上限。"""
-    base = 0.3545
-    real = -0.0004
-    perms = [0.0012, 0.0001, 0.0005, 0.0002, 0.0006]
-    orc_nb, orc_self = 0.0237, 0.0617
+    """LOCO：结构表示 vs 打乱对照 vs 两级神谕上限。数值取自权威表。
+
+    这些数原先是手抄进来的常量，正是 F1/F4 过期那个问题的同一种病。
+    现在统一走权威表的 loco 分区（由 loco_response.py 写出的 loco.json 收录）。
+    """
+    lc = _auth().get("loco", {})
+    if "_missing" in lc or not lc:
+        raise SystemExit("❗权威表未收录 LOCO，先跑 scripts/models/loco_response.py "
+                         "再跑 scripts/scorer/authoritative_results.py")
+    base = lc["context_only_fc_pcc"]
+    real = lc["gain_ecfp"]
+    perms = list(lc["shuffled_gains"])
+    orc_nb, orc_self = lc["gain_oracle_neighbor"], lc["gain_oracle_self"]
 
     fig, ax = plt.subplots(figsize=(7.0, 4.4))
     ax.axhline(0, color="k", lw=1)
     ax.scatter(np.full(len(perms), 1) + np.linspace(-.12, .12, len(perms)),
-               perms, s=55, color=C_GREY, zorder=3, label="打乱标签对照（5 次）")
+               perms, s=55, color=C_GREY, zorder=3, label=f"打乱标签对照（{len(perms)}次）")
     ax.scatter([2], [real], s=150, marker="D", color=C_WARN, zorder=4,
                label="ECFP 结构表示（真实）")
     ax.scatter([3], [orc_nb], s=110, marker="^", color=C_ALT, zorder=3,
                label="神谕挑近邻照搬（阳性对照）")
     ax.scatter([4], [orc_self], s=110, marker="*", color=C_MAIN, zorder=3,
-               label="神谕用自身残差（路线天花板）")
+               label="神谕用自身残差（化合物特异路线的上限）")
     ax.axhspan(min(perms), max(perms), color=C_GREY, alpha=.16)
     ax.text(1, max(perms) + 0.004, "随机水平带", ha="center", fontsize=8.5, color="#555")
     ax.set_ylim(-0.010, orc_self * 1.22)
@@ -272,16 +271,18 @@ def fig5_loco():
                 fontweight="bold", fontsize=9.5)
     ax.set_xticks([1, 2, 3, 4])
     ax.set_xticklabels(["打乱标签", "ECFP\n结构表示", "神谕近邻\n（阳性对照）",
-                        "神谕自身\n（天花板）"])
+                        "神谕自身\n（该路线上限）"])
     ax.set_ylabel("相对「仅上下文」基线的 fc_pcc 增益")
     ax.set_title("真实结构表示落在随机水平之下；而阳性对照有增益\n"
                  "→ 失败在表示层面，不是检验没有功效", pad=12)
     ax.legend(fontsize=8.5, loc="upper left", frameon=False,
               bbox_to_anchor=(0.02, 0.98), handletextpad=.4)
     ax.set_xlim(0.55, 4.55)
-    fig.text(0.01, -0.07, "8 折整化合物留出（43 个化合物）；化合物等权；指纹 bit 过滤与描述符"
+    fig.text(0.01, -0.07, f"{lc['n_folds']}折整化合物留出"
+             f"（{_auth()['entity_census']['train_val_compounds']}个化合物）；"
+             "化合物等权；指纹 bit 过滤与描述符"
              "标准化仅在外层训练折内拟合；λ 由内层二次留出选。\n"
-             f"仅上下文基线 fc_pcc = {base:.4f}。天花板 +{orc_self:.4f} 换算到总分约 "
+             f"仅上下文基线 fc_pcc = {base:.4f}。该路线上限 +{orc_self:.4f} 换算到总分约 "
              f"+{0.25*orc_self:.4f}。数据：scripts/models/loco_response.py",
              fontsize=8, color="#555")
     save(fig, "F5_loco_structure")
