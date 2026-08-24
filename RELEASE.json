@@ -1,0 +1,10 @@
+{
+  "remote": "https://github.com/Cpuerpxm/goai-vyeast-2026",
+  "tag": "semifinal-v1",
+  "commit": "f45c93294278e332fa3e1b74cff6e80f436d2b4f",
+  "commit_short": "f45c93294",
+  "tree_digest": "858af29db91b7c36",
+  "released_at": "2026-08-24T23:55:47+08:00",
+  "n_published_files": 86,
+  "message": "复赛整改：训练边界合规重跑 + LOCO 收进 train 折 + 可运行的合规探针"
+}
