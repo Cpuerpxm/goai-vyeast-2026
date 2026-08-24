@@ -1,0 +1,32 @@
+# GOAI 赛道三 · 算法赛题方向一 · 依赖锁定
+#
+# 复赛提交物第 4 项「依赖披露」的机器可读部分；人读的版本在 README「环境与依赖」一节。
+# 版本号是本机实际跑出全部结果的那一套（`python scripts/data/provenance.py` 可复算）。
+# 无 GPU 依赖，无商业 API 调用，无需联网。
+#
+# 安装：
+#   python -m venv .venv && .venv/Scripts/activate     # Windows
+#   python -m venv .venv && source .venv/bin/activate  # Linux / macOS
+#   pip install -r requirements.txt
+#
+# Python 3.13.12（3.11 及以上应可运行，但只在 3.13.12 上实测过）
+
+# --- 直接依赖 ---
+numpy==2.4.4
+pandas==3.0.2
+scipy==1.17.1
+scikit-learn==1.9.0        # 只用 randomized_svd（掩码 EM-PCA 里的截断 SVD）
+matplotlib==3.10.1         # 只用于出图，不参与任何数值结果
+rdkit==2024.9.5            # 只用于化合物结构表示（Morgan 指纹 + 描述符）
+
+# --- 上述包的传递依赖，一并锁住 ---
+joblib==1.5.3
+threadpoolctl==3.6.0
+pillow==12.2.0
+python-dateutil==2.9.0.post0
+six==1.17.0
+cycler==0.12.1
+fonttools==4.62.1
+kiwisolver==1.5.0
+packaging==26.0
+pyparsing==3.3.2

@@ -12,7 +12,7 @@ B2g 总体平均 Δ                 0.3087     0.9040     0.8229     0.0502     
 B2 上下文均值 Δ                 0.3111     0.9049     0.8254     0.1720     0.0000     0.1196     0.5321     0.6486     0.1248
 B3o 神谕近邻 Δ ⚠               0.3220     0.9006     0.8142     0.1150     0.2110     0.0701     0.5013     0.5933     0.1064
 B3 化学近邻 Δ                  0.2898     0.8974     0.8071     0.0311     0.1894     0.0831     0.4520     0.5348     0.0915
-B4 ridge Δ                 0.3381     0.9040     0.8062     0.1697     0.1631     0.1114     0.5297     0.6190     0.1242
+B4 ridge Δ                 0.3381     0.9040     0.8062     0.1697     0.1631     0.1114     0.5297     0.6190     0.1243
 【真值】上限参照 ⚠                 0.9945     1.0000     1.0000     1.0000     1.0000     1.0000     1.0000     1.0000     0.6670
 
 --------------------------------------------------------------------------------------------------------
@@ -69,7 +69,26 @@ B4 ridge Δ                 0.3381     0.9040     0.8062     0.1697     0.1631  
 --------------------------------------------------------------------------------------------------------
 神谕近邻挑中了谁（留出化合物 → 最相似的训练化合物，及其 Δ 谱相关）
 --------------------------------------------------------------------------------------------------------
-  【公开版脱敏】以下逐行列出化合物名称的内容已移除（《选手参赛协议》第八条）；聚合统计见方案说明文档正文。
+  COMPOUND_33                               → COMPOUND_45                           r = +0.682
+  COMPOUND_45                           → COMPOUND_33                               r = +0.630
+  COMPOUND_15                 → COMPOUND_06           r = +0.606
+  COMPOUND_40            → COMPOUND_16          r = +0.545
+  COMPOUND_06           → COMPOUND_37                 r = +0.524
+  COMPOUND_54                         → COMPOUND_37                 r = +0.510
+  COMPOUND_38                         → COMPOUND_15                 r = +0.484
+  COMPOUND_20                             → COMPOUND_31            r = +0.473
+  COMPOUND_42           → COMPOUND_16          r = +0.463
+  COMPOUND_31            → COMPOUND_20                             r = +0.454
+  COMPOUND_37                 → COMPOUND_11                                r = +0.444
+  COMPOUND_47                → COMPOUND_10                        r = +0.435
+  COMPOUND_07                     → COMPOUND_45                           r = +0.413
+  COMPOUND_16          → COMPOUND_53                        r = +0.411
+  COMPOUND_04                 → COMPOUND_15                 r = +0.388
+  COMPOUND_43                          → COMPOUND_54                         r = +0.384
+  COMPOUND_01       → COMPOUND_09                        r = +0.364
+  COMPOUND_35                          → COMPOUND_54                         r = +0.363
+  COMPOUND_39                       → COMPOUND_20                             r = +0.361
+  COMPOUND_27              → COMPOUND_49                     r = +0.359
 
 --------------------------------------------------------------------------------------------------------
 7) Tanimoto 挑的近邻 vs 神谕挑的近邻 —— B3 为什么输
@@ -78,7 +97,49 @@ B4 ridge Δ                 0.3381     0.9040     0.8062     0.1697     0.1631  
   两者挑中同一个化合物的比例，就是「结构相似 ⇒ 响应相似」这个假设的成立率。
 
   留出化合物                         神谕挑的                           Δ相关   Tanimoto挑的                    Tc     该选择的Δ相关
-  【公开版脱敏】以下逐行列出化合物名称的内容已移除（《选手参赛协议》第八条）；聚合统计见方案说明文档正文。
+  COMPOUND_01  COMPOUND_09                 +0.364   COMPOUND_11                         0.17      +0.013
+  COMPOUND_03 monohydra (1R, 2S, 5R) - (-) - Ment   +0.183   COMPOUND_14                0.14      +0.104
+  COMPOUND_04            COMPOUND_15          +0.388   COMPOUND_13          0.40      +0.315
+  COMPOUND_06      COMPOUND_37          +0.524   COMPOUND_13          0.29      +0.238
+  COMPOUND_07                COMPOUND_45                    +0.413   COMPOUND_37          0.86      +0.378
+  COMPOUND_08                    COMPOUND_16   +0.200   COMPOUND_54                  0.21      +0.086
+  COMPOUND_09                   COMPOUND_31     +0.292   COMPOUND_39                0.20      +0.215
+  COMPOUND_10                   COMPOUND_36                  +0.207   COMPOUND_38                  0.21      +0.027
+  COMPOUND_11                           COMPOUND_37          +0.224   (1R, 2S, 5R) - (-) - Ment   0.17      +0.083
+  COMPOUND_12                     COMPOUND_19                        +0.162   COMPOUND_14                0.03      +0.013
+  COMPOUND_13            COMPOUND_16   +0.256   COMPOUND_04          0.40      +0.203
+  COMPOUND_14                  COMPOUND_13          +0.281   COMPOUND_03 monoh   0.14      +0.188
+  COMPOUND_15            COMPOUND_06    +0.606   COMPOUND_52                     0.16      -0.003
+  COMPOUND_16     COMPOUND_53                 +0.411   COMPOUND_50 dihydroch   0.34      +0.270
+  COMPOUND_18       COMPOUND_10                 +0.173   COMPOUND_26                 0.33      +0.038
+  COMPOUND_19                          COMPOUND_49              +0.101   COMPOUND_13          0.17      -0.011
+  COMPOUND_20                        COMPOUND_31     +0.473   COMPOUND_49              0.12      -0.115
+  COMPOUND_21                          COMPOUND_43                   +0.239   COMPOUND_13          0.13      +0.209
+  COMPOUND_24                  COMPOUND_13          +0.219   COMPOUND_43                   0.17      +0.038
+  COMPOUND_26                   COMPOUND_10                 +0.228   COMPOUND_18     0.33      +0.056
+  COMPOUND_27         COMPOUND_49              +0.359   COMPOUND_08                  0.18      +0.029
+  COMPOUND_28                 COMPOUND_49              +0.356   COMPOUND_36                  0.23      -0.019
+  COMPOUND_29                   COMPOUND_45                    +0.305   COMPOUND_19                        0.14      +0.140
+  COMPOUND_31       COMPOUND_20                      +0.454   COMPOUND_06    0.16      +0.285
+  COMPOUND_33                          COMPOUND_45                    +0.682   COMPOUND_03 monoh   0.06      +0.043
+  COMPOUND_35                     COMPOUND_54                  +0.363   COMPOUND_38                  0.15      +0.208
+  COMPOUND_36                    COMPOUND_20                      +0.329   COMPOUND_28               0.23      -0.043
+  COMPOUND_37            COMPOUND_11                         +0.444   COMPOUND_38                  0.22      +0.155
+  COMPOUND_38                    COMPOUND_15          +0.484   COMPOUND_37          0.22      +0.283
+  COMPOUND_39                  COMPOUND_20                      +0.361   COMPOUND_09                 0.20      +0.319
+  COMPOUND_40       COMPOUND_16   +0.545   COMPOUND_18     0.28      +0.183
+  COMPOUND_42      COMPOUND_16   +0.463   COMPOUND_18     0.43      +0.081
+  COMPOUND_43                     COMPOUND_54                  +0.384   COMPOUND_38                  0.18      +0.013
+  COMPOUND_44                           COMPOUND_35                   +0.165   COMPOUND_18     0.18      -0.034
+  COMPOUND_45                      COMPOUND_33                        +0.630   COMPOUND_11                         0.10      +0.289
+  COMPOUND_46                 COMPOUND_26                 +0.208   COMPOUND_24                0.15      +0.141
+  COMPOUND_47           COMPOUND_10                 +0.435   COMPOUND_36                  0.21      +0.370
+  COMPOUND_49                COMPOUND_27       +0.320   COMPOUND_04          0.15      -0.066
+  COMPOUND_50 dihydrochlori COMPOUND_03 monoh   +0.243   COMPOUND_16   0.34      +0.178
+  COMPOUND_51                   COMPOUND_35                   +0.160   COMPOUND_08                  0.14      +0.008
+  COMPOUND_52                       COMPOUND_53                 +0.189   COMPOUND_16   0.19      +0.088
+  COMPOUND_53                   COMPOUND_20                      +0.320   COMPOUND_09                 0.16      +0.178
+  COMPOUND_54                    COMPOUND_37          +0.510   COMPOUND_08                  0.21      +0.034
 
   结构近邻与神谕近邻一致的：0/43
   → 一致率低说明在这 43 个化合物的稀疏化学空间里，Tanimoto 相似度**不是**

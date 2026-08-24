@@ -20,19 +20,60 @@
 | min_valid_points | `30` |
 | seeds | `{'shared_reference': 20260805, 'loco_folds': 20260805}` |
 
-## 代码指纹（SHA-256 前 16 位）
+## 代码与发布指纹
+
+- 源码摘要 `tree_digest` = **`858af29db91b7c36`**（`scripts/` 下 42 个 .py，路径排序后逐个 SHA-256 再汇总）
+- 公开仓库发布状态：**未发布**
+- 运行环境：Python 3.13.12 · numpy 2.4.4 · pandas 3.0.2 · scipy 1.17.1 · scikit-learn 1.9.0 · rdkit 2024.09.5
+
+<details><summary>逐文件 SHA-256 前 16 位</summary>
 
 | 文件 | 摘要 |
 |---|---|
-| `scorer/config.py` | `bf372f32805b5918` |
-| `scorer/metrics.py` | `89e06dccb4207170` |
-| `scorer/evaluate.py` | `5b7ef2d00f41bd7d` |
+| `audit/audit_control_match.py` | `5b5371a17c4a80cc` |
+| `audit/check_test_labels.py` | `cf9b4255d04969aa` |
+| `audit/diagnose_batch.py` | `13d8ca44b74df4a4` |
+| `audit/diagnose_missing.py` | `5977e1465caa13e1` |
+| `audit/noise_ceiling.py` | `6998b92fdb0c407c` |
+| `audit/perturb_inventory.py` | `bbb44a403f50c7dc` |
+| `audit/probe.py` | `5945504af6ce0ced` |
+| `audit/quantify_l1_leak.py` | `10131ca0205c6292` |
+| `audit/read_docx.py` | `ddf7c538e5cf5e8e` |
+| `audit/shared_reference_probe.py` | `9f48ca2784e1ae20` |
+| `audit/train_boundary_probe.py` | `7919f5b481cb85ed` |
 | `data/control_match.py` | `bf63ab055a32f7fd` |
+| `data/desensitize.py` | `30fc801e30ffdcfb` |
+| `data/doc_number_check.py` | `02e63df6a5337131` |
+| `data/fix_table_widths.py` | `e7af1530135e473e` |
 | `data/loader.py` | `9551b0b77a3afeea` |
-| `models/baseline_cfree.py` | `091816b05162325a` |
-| `models/select_k0.py` | `097af3624a735b44` |
-| `models/loco_response.py` | `5eb19de0734b28c1` |
-| `_git_head` | `b0a309dce` |
+| `data/paths.py` | `012dddce52c7f8ad` |
+| `data/pkg_leak_scan.py` | `4beecda54c318439` |
+| `data/provenance.py` | `a622a1b3631f8d85` |
+| `data/resolve_smiles.py` | `eb74476cdac63ced` |
+| `data/split_guard.py` | `495e823d20e4bdca` |
+| `data/stale_number_scan.py` | `f916541569dbde86` |
+| `data/strain_genome.py` | `4ccd0041680392d4` |
+| `data/test_control_match.py` | `5f7f03d99dff7ae2` |
+| `eval_test/self_eval.py` | `4f78f3c134cfbf07` |
+| `figures/make_figures.py` | `3b88e1bf934f7256` |
+| `models/baseline_cfree.py` | `b0c6418afaa3f631` |
+| `models/baselines.py` | `8afc1137f5a9c326` |
+| `models/design.py` | `837b76beef58a555` |
+| `models/loco_response.py` | `7ea5dfa078f86f50` |
+| `models/lowrank.py` | `56df6a42963a9e17` |
+| `models/predict_test.py` | `9d01988f37fbf3ac` |
+| `models/response.py` | `bdb873a4a6c84480` |
+| `models/select_k0.py` | `a289a8ca02bd59a3` |
+| `models/strain_transport.py` | `84870811d44abe64` |
+| `release.py` | `e96d51fa982e7c6f` |
+| `run_all.py` | `eb7afa2a3e079c97` |
+| `scorer/authoritative_results.py` | `9f25c90d6b00bbc6` |
+| `scorer/config.py` | `bf372f32805b5918` |
+| `scorer/evaluate.py` | `5b7ef2d00f41bd7d` |
+| `scorer/metrics.py` | `89e06dccb4207170` |
+| `scorer/test_metrics.py` | `43765ed05028e061` |
+
+</details>
 
 ## 共享参照三条件（指标 2，零药物知识预测）
 
@@ -136,6 +177,52 @@
 两者是同一次计算的不同切面。零知识预测统一使用 `baselines.b0_global_mean`，
 本表与基线表不再存在第二套「全局均值谱」定义。
 
+## 化合物表示的 nested LOCO（train 折内，宇宙 = split_final=='train'）
+
+- 合法训练化合物 **37** 个；外层 8 折整化合物留出；train 行 5920（处理行 5078）
+
+| 配置 | fc_pcc | 相对仅上下文 |
+|---|---|---|
+| 仅上下文 b | 0.3521 | — |
+| + ECFP 结构表示 | 0.3526 | +0.0004 |
+| [阳性对照2] 神谕特征走同一模块 | — | +0.0217 |
+| [阳性对照] 神谕残差照搬 | — | +0.0300 |
+| [上限] 神谕自身平均残差 | — | +0.0674 |
+
+- shuffled-label 对照 5 次：均值 +0.0002 / 最大 +0.0007 → 真增益**未超过**全部打乱对照
+- 依赖代码一致性核对：通过
+
+官方 `val_chem_only` 一次性确认（6 个化合物，其中 6 个有 SMILES；lambda=2000 取自内层众数）：
+
+| 配置 | total | fc_pcc | ctx_resid |
+|---|---|---|---|
+| 仅上下文 b | 0.3547 | 0.3505 | 0.3115 |
+| + ECFP | 0.3549 | 0.3509 | 0.3118 |
+| **差** | +0.0002 | +0.0004 | +0.0003 |
+
+> 只有 6 个留出化合物，这一格不确定性很大，只作方向一致性核对。
+
+## 未见菌株的效应搬运（外部基因组资源，按预注册判据裁决）
+
+- 外部资源：Peter et al., Nature 2018, 556, 339-344（1,011 株酿酒酵母基因组）；文件 `data/external/yeast1011/1011DistanceMatrixBasedOnSNPs.tab.gz`，SHA-256 `140da4e5193584c0…`，面板 1011 株
+- 训练菌株 4 株，其中有面板坐标的 3 株（供体池）
+- 未见菌株到最近供体 0.398（面板分位 14.6%，三供体跨度 1.701）；val 菌株 1.362（分位 73.8%，跨度 0.414）
+
+| 阶段 | 方案 | drug_resid | 相对现状 |
+|---|---|---|---|
+| train 内 LOSO | 现状（未见菌株整块 0） | 0.2986 | — |
+| train 内 LOSO | 等权（无基因组信息） | 0.2981 | -0.0005 |
+| train 内 LOSO | SNP 距离核 | 0.2982 | -0.0005 |
+| val_strain_only 一次性 | 现状 | 0.3509 | +0.0000 |
+| val_strain_only 一次性 | 等权 | 0.3496 | -0.0013 |
+| val_strain_only 一次性 | SNP 距离核 | 0.3499 | -0.0010 |
+
+- 预注册判据（写在 `_handoff/CURRENT.md`，不是事后定的）：drug_resid 增量 ≥ +0.015 或六项总分增量 ≥ +0.003，且 abs_r2 与 S1 abs_r2 下降不超过 0.005
+- 实测：drug_resid -0.0010 · 总分 -0.0008 · abs_r2 -0.0014 · S1 abs_r2 +0.0000
+- **裁决：不保留，按预案永久停止该路线**
+
+> ⚠ 可验证性是不对称的：加权最可能起作用的那一格（未见菌株，与某训练菌株近缘）无法验证；唯一能验证的那一格（val 菌株）到三个供体近乎等距，验不出加权本身。上表能支持的结论只到「搬运机制本身在本数据上不带来增益」，不能反过来说「菌株基因组对该任务无用」。
+
 ## 已知的作废数字（勿再引用）
 
 | 作废值 | 出处 | 现行值 |
@@ -144,3 +231,6 @@
 | B2 ctx_resid 0.0011 | float32 舍入噪声被当真信号 | 0.0000 |
 | 修评分器前的整张基线表（B0 0.2928 / B2 0.2761 / B3 0.2479 / B4 0.3026 / α 0.3473） | 未定义轴与常数判据两个 bug 修复前 | 见 docs/06 §11.2 修正后表 |
 | 加权上限 ≈ 0.42 | 由 √ρ 推出，前提不成立（预测与真值共享对照噪声） | **已作废，不替换为任何单一数字** |
+| C-free 低秩 K0=16 总分 0.4694 | 设计矩阵词表与 log-time 标准化参数在**全表**估计（L1-1） | 见本表「C-free」一节 |
+| LOCO Morgan 增益 −0.0004 / 神谕近邻 +0.0237 / 神谕自身 +0.0617 | 外层留出宇宙含 val 化合物（L1-2） | 见本表 LOCO 一节 |
+| 提交模型用全部 train_val 拟合 | `predict_test.py --fit-rows all`，违反手册第 17 页 | 选项已删除，只拟合 train 折 |

@@ -228,7 +228,8 @@ def fig4_baseline_ladder():
     fig.suptitle("不读测试对照的可部署模型，反而高于需读对照的诊断基线",
                  fontsize=11, y=0.99)
     fig.text(0.01, -0.06, "两组的推断前提不同，不是同一张名次表：上组在推断时需要该样本的实测对照，"
-             "在我方的保守假设下不作提交路线。\n"
+             "而最终评审用组委会另备的、不随赛题发放的内部评测集，那上面读不到对照，"
+             "这类模型跑不起来。\n"
              "下组含泄漏守卫，确保预测不依赖对照。B0 全局均值谱不读对照，只列于下组。"
              "数值取自 results/AUTHORITATIVE.md。", fontsize=8, color="#555")
     save(fig, "F4_baseline_ladder")
@@ -273,13 +274,23 @@ def fig5_loco():
     ax.set_xticklabels(["打乱标签", "ECFP\n结构表示", "神谕近邻\n（阳性对照）",
                         "神谕自身\n（该路线上限）"])
     ax.set_ylabel("相对「仅上下文」基线的 fc_pcc 增益")
-    ax.set_title("真实结构表示落在随机水平之下；而阳性对照有增益\n"
+    # 标题必须跟着数走，不能写死一句话。2026-08-24 合规重跑后真实增益
+    # 落进了随机带内部（此前是带的下方），写死的旧标题会与图里的点矛盾。
+    inside = min(perms) <= real <= max(perms)
+    where = "落在随机水平带内部" if inside else (
+        "落在随机水平之上" if real > max(perms) else "落在随机水平之下")
+    ax.set_title(f"真实结构表示{where}；而阳性对照明显有增益\n"
                  "→ 失败在表示层面，不是检验没有功效", pad=12)
     ax.legend(fontsize=8.5, loc="upper left", frameon=False,
               bbox_to_anchor=(0.02, 0.98), handletextpad=.4)
     ax.set_xlim(0.55, 4.55)
-    fig.text(0.01, -0.07, f"{lc['n_folds']}折整化合物留出"
-             f"（{_auth()['entity_census']['train_val_compounds']}个化合物）；"
+    # 折数与化合物数都取自 loco.json 本身。2026-08-24 起 LOCO 宇宙收进 train 折，
+    # 化合物从 43 变成 37；再去引 entity_census 的 train_val_compounds 就会
+    # 在图注里写出一个与实际留出规模不符的数。
+    n_folds = lc.get("n_folds_effective", lc.get("n_folds", "?"))
+    n_cmpd = lc.get("n_compounds", "?")
+    fig.text(0.01, -0.07, f"{n_folds}折整化合物留出"
+             f"（宇宙 = split_final=='train'，{n_cmpd} 个合法训练化合物）；"
              "化合物等权；指纹 bit 过滤与描述符"
              "标准化仅在外层训练折内拟合；λ 由内层二次留出选。\n"
              f"仅上下文基线 fc_pcc = {base:.4f}。该路线上限 +{orc_self:.4f} 换算到总分约 "

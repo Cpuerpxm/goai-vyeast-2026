@@ -4,6 +4,8 @@
 特征集 bio_tech：Strains / Medium / Temperature / data_source / instrument + log-time 三次多项式
 拟合行：split_final=='train' 共 5920 行（含对照）
 岭参数 λ=30.0；未见水平整行为 0 → 自动回退总体先验
+设计矩阵词表与 log-time 标准化参数**只由这 5920 行冻结**（拟合行指纹 5920:09c1bd1fb154e930）
+  非 train 行落到未见水平的情况：Strains 1816 行 → ['STRAIN_B']
 
 ❗与此前基线的根本区别：此前 B1–B4、低秩响应、α 收缩都是 ŷ = C + Δ̂，
   推断时需要该样本的真实对照。A 分支下测试集对照在被隔离的文件里，拿不到，

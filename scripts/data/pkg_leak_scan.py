@@ -65,9 +65,11 @@ def scan_file(path: str, comp: set[str], strain: set[str]) -> dict:
     except OSError:
         return {}
     low = txt.lower()
-    # 化合物名要连去掉盐/水合物后缀的词干一起找。台账里登记的是
-    # "Dyclonine hydrochloride"，而正文往往只写 "dyclonine"——
+    # 化合物名要连去掉盐/水合物后缀的词干一起找。元数据登记的常是
+    # "<母体名> hydrochloride"，而正文往往只写母体名——
     # 只比全名的话，词干形式会整个漏过去（2026-08-07 实测漏检）。
+    # ❗这条注释里刻意不举真实化合物做例子：本文件要进公开仓库，
+    # 举例等于把它扫的东西写进它自己（2026-08-24 被自己扫出来过一次）。
     hits_c = set()
     for c in comp:
         if not c:
@@ -83,8 +85,12 @@ def scan_file(path: str, comp: set[str], strain: set[str]) -> dict:
     # 恰恰通篇是中文夹英文代号。改用「两侧不是 ASCII 字母数字」判定。
     hits_s = sorted({s for s in strain
                      if re.search(rf"(?<![A-Za-z0-9]){re.escape(s)}(?![A-Za-z0-9])", txt)})
-    # 先剔除长 hex 串（SHA-256 摘要等），否则其中的连续数字会被当成丰度值误报
-    num_txt = re.sub(r"\b[0-9a-fA-F]{32,}\b", " ", txt)
+    # 先剔除 hex 摘要，否则其中的连续数字会被当成丰度值误报。
+    # ❗阈值从 32 降到 12，且要求串里至少有一个 a-f 字母：
+    # 代码指纹表登记的是 SHA-256 的**前 16 位**（2026-08-24 起每个源码文件一行），
+    # 32 位的阈值一个都剔不掉，结果 21 个 hex 里的数字段被判成「疑似原始丰度」。
+    # 要求含字母是为了不误伤纯十进制的长整数——那种才可能真是数据。
+    num_txt = re.sub(r"\b(?=[0-9a-fA-F]{12,}\b)[0-9]*[a-fA-F][0-9a-fA-F]*\b", " ", txt)
     big = re.findall(r"(?<![\d.])\d{5,}(?![\d.])", num_txt)
     sci = re.findall(r"\d\.\d+e[+-]?0?[5-9]", num_txt, flags=re.I)
     return {"compound": hits_c, "strain": hits_s,

@@ -36,10 +36,11 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data import paths
+from data import split_guard as sg
+from models.design import PERT_COL, encode, freeze
 from scorer import evaluate as ev
 from scorer.config import ScorerConfig
 
-PERT_COL = "perturbation_no_concentration"
 OUT_DIR = os.path.join(paths.RESULTS, "step4_baselines")
 SMILES_CSV = os.path.join(paths.DATA_EXTERNAL, "compound_smiles.csv")
 
@@ -172,29 +173,23 @@ def b3_chem_neighbor(ctx: ev.EvalContext, fb: np.ndarray, smiles_csv: str):
     return _fill(ctx.C + delta, fb), picks
 
 
-def _design(meta: pd.DataFrame) -> np.ndarray:
-    """上下文 one-hot + log-time 多项式 + 药物 one-hot。"""
-    blocks = [np.ones((len(meta), 1), dtype=np.float32)]
-    for c in ["Strains", "Medium", "Temperature", PERT_COL]:
-        codes, uniq = pd.factorize(meta[c].astype(str))
-        M = np.zeros((len(meta), len(uniq)), dtype=np.float32)
-        M[np.arange(len(meta)), codes] = 1.0
-        blocks.append(M)
-    t = np.log1p(meta["pert_time"].to_numpy(dtype=np.float64))
-    t = (t - t.mean()) / t.std()
-    blocks.append(np.stack([t, t ** 2, t ** 3], axis=1).astype(np.float32))
-    return np.hstack(blocks)
-
-
 def b4_ridge(ctx: ev.EvalContext, fb: np.ndarray, lam: float = 30.0) -> np.ndarray:
     """岭回归预测 Δ。
 
     缺失处理：Δ 的缺失位置不进 Z'δ 的求和，再按该蛋白的观测数重标定
     （近似：Gram 矩阵用全部训练行，未按蛋白逐个重算）。Δ 均值 ≈ 0，
     该近似只带来一个温和的均匀收缩，对基线足够。
+
+    ❗2026-08-24（L1-1）：原来的私有 `_design()` 与 baseline_cfree 的旧 design()
+    同病——`pd.factorize` 与 `t.mean()/t.std()` 都作用于整张 meta。B4 虽是需读对照的
+    oracle 诊断基线、不可提交，但它的数进权威表，复现核验一样会读到这段代码。
+    现在统一走 models.design 的 freeze/encode，词表与标准化参数只由训练行冻结。
     """
-    Z = _design(ctx.meta)
-    tr = np.nonzero(ctx.train_mask)[0]
+    spec = freeze(ctx.meta, ctx.train_mask, ["Strains", "Medium", "Temperature"],
+                  with_drug=True)
+    Z = encode(ctx.meta, spec)
+    tr = np.nonzero(sg.assert_train_only(ctx.meta, ctx.train_mask,
+                                         what="b4_ridge 拟合行"))[0]
     Zt = Z[tr].astype(np.float64)
     Dt = ctx.D[tr]
     M = np.isfinite(Dt)

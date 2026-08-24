@@ -27,7 +27,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data import paths
+from data import paths, provenance
+from data import split_guard as sg
 from scorer import evaluate as ev
 from scorer.config import ScorerConfig
 from scorer.metrics import pcc_axis
@@ -36,27 +37,25 @@ OUT_MD = os.path.join(paths.RESULTS, "AUTHORITATIVE.md")
 OUT_JSON = os.path.join(paths.RESULTS, "AUTHORITATIVE.json")
 CTX_KEYS = ["Strains", "Medium", "Temperature", "pert_time"]
 
-# 参与口径指纹的代码文件
-CODE_FILES = [
+#: 只要这些文件里有一个变了，results/step9_loco/loco.json 里的数就可能过期。
+#: 权威表**不重跑** LOCO（8 折外层留出代价太高），因此改成硬核对：
+#: loco.json 里记着它自己跑的时候这些文件的哈希，对不上就拒绝收录。
+LOCO_DEPS = [
+    "models/loco_response.py", "models/design.py", "models/lowrank.py",
+    "data/split_guard.py", "data/loader.py", "data/control_match.py",
     "scorer/config.py", "scorer/metrics.py", "scorer/evaluate.py",
-    "data/control_match.py", "data/loader.py",
-    "models/baseline_cfree.py", "models/select_k0.py", "models/loco_response.py",
 ]
 
 
 def code_fingerprint() -> dict:
-    out = {}
-    for rel in CODE_FILES:
-        p = os.path.join(paths.SCRIPTS_ROOT, rel)
-        if os.path.exists(p):
-            out[rel] = hashlib.sha256(open(p, "rb").read()).hexdigest()[:16]
-    try:
-        out["_git_head"] = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=paths.PROJECT_ROOT,
-            capture_output=True, text=True, timeout=10).stdout.strip() or "(未提交)"
-    except Exception:
-        out["_git_head"] = "(取不到)"
-    return out
+    """源码摘要 + 公开仓库发布标识 + 环境。
+
+    ❗2026-08-24（L1-3）：旧版把本地大仓库 `E:/Claude_Code` 的 `git rev-parse HEAD`
+    写成 `_git_head`，记下来的是 `b0a309dce` —— 公开仓库里根本不存在这个提交。
+    现在改由 `data/provenance.py` 出：tree_digest 谁 clone 都能复算，
+    发布标识来自 `RELEASE.json`（`scripts/release.py` 写），没发布就明写未发布。
+    """
+    return provenance.stamp()
 
 
 def shared_reference(ctx, cfg, seed=20260805) -> dict:
@@ -93,7 +92,8 @@ def shared_reference(ctx, cfg, seed=20260805) -> dict:
 
 def baselines_and_cfree(ctx, cfg) -> dict:
     """基线阶梯 + C-free 骨架 + 选秩曲线。全部现场重算。"""
-    from models.baseline_cfree import FEATURE_SETS, design, masked_ridge
+    from models.baseline_cfree import masked_ridge
+    from models.design import FEATURE_SETS, encode, freeze
     from models.baselines import (b0_global_mean, b1_control, b2_ctx_mean_delta,
                                   b2g_global_delta, b3o_oracle_neighbor, b4_ridge,
                                   _fill)
@@ -136,9 +136,14 @@ def baselines_and_cfree(ctx, cfg) -> dict:
             alpha_val, alpha_best = t, a
     out["oracle_C_based"][f"对照收缩 α={alpha_best}"] = {"total": alpha_val}
 
-    train = (ctx.meta["split_final"] == "train").to_numpy()
-    Z = design(ctx.meta, FEATURE_SETS["bio_tech"], with_drug=False)
-    mu, W = masked_ridge(Z, ctx.X, train, 30.0)
+    train = sg.train_rows(ctx.meta)
+    # ❗L1-1：这一行原来是 design(ctx.meta, ...)，在**全表**建词表并算 log-time
+    # 均值方差——产出 0.4694 的正是这个脚本。现在词表与标准化参数只由 train 折冻结。
+    spec = freeze(ctx.meta, train, FEATURE_SETS["bio_tech"], with_drug=False)
+    Z = encode(ctx.meta, spec)
+    out["design_spec"] = {k: v for k, v in spec.items() if k != "levels"}
+    out["design_spec"]["levels"] = spec["levels"]
+    mu, W = masked_ridge(Z, ctx.X, train, 30.0, ctx.meta)
     y_full = np.nan_to_num((mu[None, :] + Z.astype(np.float64) @ W).astype(np.float32),
                            nan=float(np.nanmedian(mu)))
     out["c_free"]["全局均值谱"] = ev.flatten(ev.evaluate(b0_global_mean(ctx), ctx, val, cfg))
@@ -250,12 +255,16 @@ def entity_census(ctx) -> dict:
     }
 
 
-def ingest_loco() -> dict:
+def ingest_loco(allow_stale: bool = False) -> dict:
     """收录 LOCO 的数，但**不重跑**——那是 8 折外层留出，代价太高。
 
-    2026-08-07 外审：文中 +0.0617 / +0.0237 / −0.0004 全不在注册范围内，
-    数字核对脚本对它们完全无感。这里按内容哈希收录 loco.json，
-    既进注册表，又能查出它是否比本表旧。
+    2026-08-07 外审：文中 +0.0617 / +0.0237 / -0.0004 全不在注册范围内，
+    数字核对脚本对它们完全无感。于是这里按内容哈希收录 loco.json。
+
+    ❗2026-08-24（L1-3）补上真正的闸门：只按内容哈希收录，挡不住「loco.json 是旧
+    模型跑出来的」这件事——旧结果照样会被带进新材料。现在改成硬核对：
+    loco.json 里记着它运行时 LOCO_DEPS 各文件的哈希，任一对不上即**拒绝收录**。
+    要强行放行必须显式传 --allow-stale-loco，且结果里会留下醒目的作废标记。
     """
     p = os.path.join(paths.RESULTS, "step9_loco", "loco.json")
     if not os.path.exists(p):
@@ -265,10 +274,70 @@ def ingest_loco() -> dict:
     d["_source_file"] = os.path.relpath(p, paths.PROJECT_ROOT).replace("\\", "/")
     d["_source_sha256"] = hashlib.sha256(raw).hexdigest()[:16]
     d["_source_mtime"] = datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="seconds")
+
+    now = provenance.file_hashes(LOCO_DEPS)
+    rec = (d.get("_provenance") or {}).get("files") or {}
+    drift = {k: {"loco.json 记录": rec.get(k, "(未记录)"), "当前": now[k]}
+             for k in LOCO_DEPS if rec.get(k) != now[k]}
+    d["_dep_check"] = {"deps": LOCO_DEPS, "drift": drift, "stale": bool(drift)}
+    if drift:
+        msg = ("results/step9_loco/loco.json 是用**另一份代码**跑出来的，"
+               f"以下依赖对不上：{sorted(drift)}。"
+               "重跑 `python scripts/models/loco_response.py` 后再生成权威表。")
+        if not allow_stale:
+            raise RuntimeError("[权威表] 拒绝收录过期 LOCO 结果：" + msg)
+        d["_STALE_WARNING"] = "⚠ 本节数字来自过期代码，**不得对外引用**。" + msg
+    return d
+
+
+#: 菌株搬运实验的依赖文件，同样按哈希核对，防止旧结论被带进新材料。
+STRAIN_DEPS = [
+    "models/strain_transport.py", "models/design.py", "models/lowrank.py",
+    "data/strain_genome.py", "data/split_guard.py", "data/loader.py",
+    "data/control_match.py", "scorer/config.py", "scorer/metrics.py",
+    "scorer/evaluate.py",
+]
+
+
+def ingest_strain_transport(allow_stale: bool = False) -> dict:
+    """收录未见菌株效应搬运的结论（含它的否定判据）。
+
+    与 LOCO 同样的规矩：不重跑，但硬核对依赖代码指纹；对不上就拒绝收录。
+    这条路线按预注册判据被判定为**不保留**，结论本身也要进权威表——
+    负结果同样是结果，材料里要引它，就不能靠手抄。
+    """
+    p = os.path.join(paths.RESULTS, "step11_strain_transport", "strain_transport.json")
+    if not os.path.exists(p):
+        return {"_missing": f"缺 {p}，先跑 scripts/models/strain_transport.py"}
+    raw = open(p, "rb").read()
+    d = json.loads(raw.decode("utf-8"))
+    d["_source_file"] = os.path.relpath(p, paths.PROJECT_ROOT).replace("\\", "/")
+    d["_source_sha256"] = hashlib.sha256(raw).hexdigest()[:16]
+    d["_source_mtime"] = datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="seconds")
+
+    now = provenance.file_hashes(STRAIN_DEPS)
+    rec = (d.get("_provenance") or {}).get("files") or {}
+    drift = {k for k in STRAIN_DEPS if rec.get(k) != now[k]}
+    d["_dep_check"] = {"deps": STRAIN_DEPS, "drift": sorted(drift), "stale": bool(drift)}
+    if drift:
+        msg = (f"strain_transport.json 与当前代码不一致，对不上的依赖：{sorted(drift)}。"
+               "重跑 `python scripts/models/strain_transport.py` 后再生成权威表。")
+        if not allow_stale:
+            raise RuntimeError("[权威表] 拒绝收录过期的菌株搬运结果：" + msg)
+        d["_STALE_WARNING"] = "⚠ 本节数字来自过期代码，**不得对外引用**。" + msg
     return d
 
 
 def main() -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--allow-stale-loco", action="store_true",
+                    help="强行收录与当前代码不一致的 loco.json（会打作废标记）")
+    ap.add_argument("--allow-stale-strain", action="store_true",
+                    help="强行收录与当前代码不一致的 strain_transport.json")
+    args = ap.parse_args()
+
     cfg = ScorerConfig()
     ctx = ev.build_context(verbose=False)
     val = ctx.rows(ev.VAL_SPLITS)
@@ -298,7 +367,9 @@ def main() -> None:
     print("[权威表] 算混杂与缺失 …")
     res["confounding_and_missing"] = confounding_and_missing(ctx)
     res["entity_census"] = entity_census(ctx)
-    res["loco"] = ingest_loco()
+    res["loco"] = ingest_loco(allow_stale=args.allow_stale_loco)
+    res["strain_transport"] = ingest_strain_transport(
+        allow_stale=args.allow_stale_strain)
 
     # 数据实况
     with warnings.catch_warnings():
@@ -327,9 +398,24 @@ def main() -> None:
          "## 口径指纹", "", "| 项 | 值 |", "|---|---|"]
     for k, v in res["caliber"].items():
         L.append(f"| {k} | `{v}` |")
-    L += ["", "## 代码指纹（SHA-256 前 16 位）", "", "| 文件 | 摘要 |", "|---|---|"]
-    for k, v in res["code_fingerprint"].items():
+    fp = res["code_fingerprint"]
+    rel = fp["release"]
+    L += ["", "## 代码与发布指纹", "",
+          f"- 源码摘要 `tree_digest` = **`{fp['tree_digest']}`**"
+          f"（`scripts/` 下 {fp['n_source_files']} 个 .py，路径排序后逐个 SHA-256 再汇总）",
+          f"- 公开仓库发布状态：**{rel['_status']}**"
+          + (f"，tag `{rel.get('tag')}` · commit `{rel.get('commit')}` · "
+             f"与本次源码一致：{'是' if rel.get('tree_digest_matches_release') else '**否**'}"
+             if rel["_status"] == "已发布" else ""),
+          f"- 运行环境：Python {fp['env']['python']} · numpy {fp['env']['numpy']} · "
+          f"pandas {fp['env']['pandas']} · scipy {fp['env']['scipy']} · "
+          f"scikit-learn {fp['env']['sklearn']} · rdkit {fp['env']['rdkit']}",
+          "",
+          "<details><summary>逐文件 SHA-256 前 16 位</summary>", "",
+          "| 文件 | 摘要 |", "|---|---|"]
+    for k, v in fp["files"].items():
         L.append(f"| `{k}` | `{v}` |")
+    L += ["", "</details>"]
     L += ["", "## 共享参照三条件（指标 2，零药物知识预测）", "",
           f"评估样本 {sr['n_rows']}（官方四类 val 的处理样本）", "",
           "| 条件 | 样本轴 PCC | 蛋白轴 PCC |", "|---|---|---|"]
@@ -397,12 +483,104 @@ def main() -> None:
           f"上表按轴分列；而基线阶梯里 B0 的 `fc_pcc` 报的是**两轴平均** = {both:.4f}。",
           "两者是同一次计算的不同切面。零知识预测统一使用 `baselines.b0_global_mean`，",
           "本表与基线表不再存在第二套「全局均值谱」定义。", "",
+          "## 化合物表示的 nested LOCO（train 折内，宇宙 = split_final=='train'）", ""]
+    lc = res["loco"]
+    if lc.get("_missing"):
+        L.append(f"> {lc['_missing']}")
+    else:
+        if lc.get("_STALE_WARNING"):
+            L.append(f"> {lc['_STALE_WARNING']}")
+        L += [f"- 合法训练化合物 **{lc.get('n_compounds')}** 个；"
+              f"外层 {lc.get('n_folds_effective')} 折整化合物留出；"
+              f"train 行 {lc.get('n_train_rows')}（处理行 {lc.get('n_train_compound_rows')}）",
+              "", "| 配置 | fc_pcc | 相对仅上下文 |", "|---|---|---|",
+              f"| 仅上下文 b | {lc.get('context_only_fc_pcc', float('nan')):.4f} | — |",
+              f"| + ECFP 结构表示 | {lc.get('ecfp_fc_pcc', float('nan')):.4f} | "
+              f"{lc.get('gain_ecfp', float('nan')):+.4f} |",
+              f"| [阳性对照2] 神谕特征走同一模块 | — | "
+              f"{lc.get('gain_oracle_feature_same_module', float('nan')):+.4f} |",
+              f"| [阳性对照] 神谕残差照搬 | — | {lc.get('gain_oracle_neighbor', float('nan')):+.4f} |",
+              f"| [上限] 神谕自身平均残差 | — | {lc.get('gain_oracle_self', float('nan')):+.4f} |",
+              "",
+              f"- shuffled-label 对照 {lc.get('n_perm')} 次：均值 "
+              f"{(lc.get('shuffled_mean') if lc.get('shuffled_mean') is not None else float('nan')):+.4f}"
+              f" / 最大 {(lc.get('shuffled_max') if lc.get('shuffled_max') is not None else float('nan')):+.4f}"
+              f" → 真增益{'超过' if lc.get('passes_shuffled_control') else '**未超过**'}全部打乱对照",
+              f"- 依赖代码一致性核对：{'通过' if not lc.get('_dep_check', {}).get('stale') else '**未通过（结果过期）**'}"]
+        fv = lc.get("final_val_chem_only") or {}
+        if fv:
+            L += ["",
+                  f"官方 `val_chem_only` 一次性确认（{fv['n_val_compounds']} 个化合物，"
+                  f"其中 {fv['n_with_smiles']} 个有 SMILES；lambda={fv['lam']:g} 取自内层众数）：",
+                  "", "| 配置 | total | fc_pcc | ctx_resid |", "|---|---|---|---|",
+                  f"| 仅上下文 b | {fv['context_only']['total']:.4f} | "
+                  f"{fv['context_only']['fc_pcc']:.4f} | {fv['context_only']['ctx_resid']:.4f} |",
+                  f"| + ECFP | {fv['ecfp']['total']:.4f} | {fv['ecfp']['fc_pcc']:.4f} | "
+                  f"{fv['ecfp']['ctx_resid']:.4f} |",
+                  f"| **差** | {fv['delta_total']:+.4f} | {fv['delta_fc_pcc']:+.4f} | "
+                  f"{fv['delta_ctx_resid']:+.4f} |",
+                  "", "> 只有 6 个留出化合物，这一格不确定性很大，只作方向一致性核对。"]
+    L += ["", "## 未见菌株的效应搬运（外部基因组资源，按预注册判据裁决）", ""]
+    st = res["strain_transport"]
+    if st.get("_missing"):
+        L.append(f"> {st['_missing']}")
+    else:
+        if st.get("_STALE_WARNING"):
+            L.append(f"> {st['_STALE_WARNING']}")
+        ex = st.get("external_resource", {})
+        zb = st.get("loso_zero_baseline", {})
+        bu, bs = st.get("loso_best_uniform"), st.get("loso_best_snp")
+        fv = st.get("final_val_strain_only", {})
+        L += [f"- 外部资源：{ex.get('citation')}；文件 `{ex.get('matrix_file')}`，"
+              f"SHA-256 `{str(ex.get('matrix_sha256'))[:16]}…`，面板 {ex.get('panel_size')} 株",
+              f"- 训练菌株 {len(st.get('train_strains', []))} 株，其中有面板坐标的 "
+              f"{len(st.get('donors_with_coordinates', []))} 株（供体池）",
+              f"- 未见菌株到最近供体 {st.get('unseen_nearest_donor_distance', float('nan')):.3f}"
+              f"（面板分位 {st.get('unseen_panel_quantile', float('nan')):.1%}，"
+              f"三供体跨度 {st.get('unseen_donor_distance_spread', float('nan')):.3f}）；"
+              f"val 菌株 {st.get('val_nearest_donor_distance', float('nan')):.3f}"
+              f"（分位 {st.get('val_panel_quantile', float('nan')):.1%}，"
+              f"跨度 {st.get('val_donor_distance_spread', float('nan')):.3f}）",
+              "",
+              "| 阶段 | 方案 | drug_resid | 相对现状 |", "|---|---|---|---|",
+              f"| train 内 LOSO | 现状（未见菌株整块 0） | "
+              f"{zb.get('drug_resid', float('nan')):.4f} | — |"]
+        for lab, b in (("等权（无基因组信息）", bu), ("SNP 距离核", bs)):
+            if b:
+                L.append(f"| train 内 LOSO | {lab} | {b['drug_resid']:.4f} | "
+                         f"{b['drug_resid'] - zb.get('drug_resid', float('nan')):+.4f} |")
+        if fv:
+            for name, lab in (("zero", "现状"), ("uniform", "等权"), ("snp", "SNP 距离核")):
+                if name in fv:
+                    L.append(f"| val_strain_only 一次性 | {lab} | "
+                             f"{fv[name]['drug_resid']:.4f} | "
+                             f"{fv[name]['drug_resid'] - fv['zero']['drug_resid']:+.4f} |")
+            vd = fv.get("verdict", {})
+            L += ["",
+                  f"- 预注册判据（写在 `_handoff/CURRENT.md`，不是事后定的）："
+                  f"drug_resid 增量 ≥ +0.015 或六项总分增量 ≥ +0.003，"
+                  f"且 abs_r2 与 S1 abs_r2 下降不超过 0.005",
+                  f"- 实测：drug_resid {vd.get('delta_drug_resid', float('nan')):+.4f} · "
+                  f"总分 {vd.get('delta_total', float('nan')):+.4f} · "
+                  f"abs_r2 {vd.get('delta_abs_r2', float('nan')):+.4f} · "
+                  f"S1 abs_r2 {vd.get('delta_s1_abs_r2', float('nan')):+.4f}",
+                  f"- **裁决：{'保留' if vd.get('passed') else '不保留，按预案永久停止该路线'}**"]
+        L += ["",
+              "> ⚠ 可验证性是不对称的：加权最可能起作用的那一格（未见菌株，与某训练菌株近缘）"
+              "无法验证；唯一能验证的那一格（val 菌株）到三个供体近乎等距，验不出加权本身。"
+              "上表能支持的结论只到「搬运机制本身在本数据上不带来增益」，"
+              "不能反过来说「菌株基因组对该任务无用」。"]
+
+    L += ["",
           "## 已知的作废数字（勿再引用）", "",
           "| 作废值 | 出处 | 现行值 |", "|---|---|---|",
           "| B0 abs_pcc 0.9535 | 未定义轴被静默踢出时的值 | 0.4768（undefined_axis=zero） |",
           "| B2 ctx_resid 0.0011 | float32 舍入噪声被当真信号 | 0.0000 |",
           "| 修评分器前的整张基线表（B0 0.2928 / B2 0.2761 / B3 0.2479 / B4 0.3026 / α 0.3473） | 未定义轴与常数判据两个 bug 修复前 | 见 docs/06 §11.2 修正后表 |",
-          "| 加权上限 ≈ 0.42 | 由 √ρ 推出，前提不成立（预测与真值共享对照噪声） | **已作废，不替换为任何单一数字** |"]
+          "| 加权上限 ≈ 0.42 | 由 √ρ 推出，前提不成立（预测与真值共享对照噪声） | **已作废，不替换为任何单一数字** |",
+          "| C-free 低秩 K0=16 总分 0.4694 | 设计矩阵词表与 log-time 标准化参数在**全表**估计（L1-1） | 见本表「C-free」一节 |",
+          "| LOCO Morgan 增益 −0.0004 / 神谕近邻 +0.0237 / 神谕自身 +0.0617 | 外层留出宇宙含 val 化合物（L1-2） | 见本表 LOCO 一节 |",
+          "| 提交模型用全部 train_val 拟合 | `predict_test.py --fit-rows all`，违反手册第 17 页 | 选项已删除，只拟合 train 折 |"]
 
     with open(OUT_MD, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(L) + "\n")

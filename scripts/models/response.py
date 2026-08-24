@@ -37,11 +37,12 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data import paths
+from data import split_guard as sg
 from models.baselines import SMILES_CSV, _fill, b0_global_mean
+from models.design import PERT_COL, encode, freeze
 from scorer import evaluate as ev
 from scorer.config import ScorerConfig
 
-PERT_COL = "perturbation_no_concentration"
 OUT_DIR = os.path.join(paths.RESULTS, "step6_response")
 BASES = os.path.join(paths.RESULTS, "step5_lowrank", "bases.npz")
 
@@ -49,19 +50,16 @@ BASES = os.path.join(paths.RESULTS, "step5_lowrank", "bases.npz")
 # --------------------------------------------------------------- 表示
 
 
-def psi_context(meta: pd.DataFrame) -> np.ndarray:
-    """ψ(u)：菌株 / 培养基 / 温度 one-hot + log-time 样条。"""
-    blocks = []
-    for c in ["Strains", "Medium", "Temperature"]:
-        codes, uniq = pd.factorize(meta[c].astype(str))
-        M = np.zeros((len(meta), len(uniq)), dtype=np.float32)
-        M[np.arange(len(meta)), codes] = 1.0
-        blocks.append(M)
-    t = np.log1p(meta["pert_time"].to_numpy(dtype=np.float64))
-    t = (t - t.mean()) / t.std()
-    # 自然样条的简易替代：三次多项式基（6 个时间点撑不起更复杂的基）
-    blocks.append(np.stack([t, t ** 2, t ** 3], axis=1).astype(np.float32))
-    return np.hstack(blocks)
+def psi_context(meta: pd.DataFrame, fit_rows: np.ndarray) -> np.ndarray:
+    """ψ(u)：菌株 / 培养基 / 温度 one-hot + log-time 三次多项式。
+
+    ❗2026-08-24（L1-1）：原来 `pd.factorize` 与 `t.mean()/t.std()` 都作用于整张 meta，
+    词表与标准化参数因此看过 val。现在统一走 models.design 的 freeze/encode，
+    只由 fit_rows 冻结；6 个时间点撑不起更复杂的样条，三次多项式照旧。
+    """
+    spec = freeze(meta, fit_rows, ["Strains", "Medium", "Temperature"], with_drug=False)
+    Z = encode(meta, spec)
+    return Z[:, 1:]                     # 截距在 fit_response 里另加，这里不重复
 
 
 def phi_onehot(meta: pd.DataFrame, drugs: list) -> np.ndarray:
@@ -75,8 +73,13 @@ def phi_onehot(meta: pd.DataFrame, drugs: list) -> np.ndarray:
     return M
 
 
-def phi_morgan(meta: pd.DataFrame, smiles_csv: str):
-    """Morgan 指纹（半径 2，2048 位，先按训练集出现频率过滤）+ RDKit 描述符。"""
+def phi_morgan(meta: pd.DataFrame, smiles_csv: str, train_compounds):
+    """Morgan 指纹（半径 2，2048 位）+ RDKit 描述符。
+
+    ❗2026-08-24（L1-1 / Pro E5 第 3 条）：bit 过滤与描述符标准化原来在**全部**
+    化合物（含 val 化合物）上算，等于让留出化合物参与了预处理参数估计。
+    现在 keep 掩码与 (mean, std) 都只由 `train_compounds` 决定。
+    """
     if not os.path.exists(smiles_csv):
         return None, f"缺 {smiles_csv}"
     from rdkit import Chem, RDLogger
@@ -107,13 +110,16 @@ def phi_morgan(meta: pd.DataFrame, smiles_csv: str):
 
     pert = meta[PERT_COL].astype(str).to_numpy()
     have = [d for d in np.unique(pert) if d in fp]
+    tr = [d for d in train_compounds if d in fp]
     if len(have) < 10:
         return None, f"只有 {len(have)} 个化合物解析出结构，不足以建化学表示"
-    B = np.vstack([fp[d] for d in have])
-    keep = (B.sum(0) >= 3) & (B.sum(0) <= len(have) - 3)     # 去掉全 0/全 1 的位
-    Dsc = np.vstack([desc[d] for d in have])
-    Dsc = (Dsc - Dsc.mean(0)) / (Dsc.std(0) + 1e-8)
-    table = {d: np.concatenate([fp[d][keep], Dsc[i]]) for i, d in enumerate(have)}
+    if len(tr) < 5:
+        return None, f"只有 {len(tr)} 个**训练**化合物有结构，不足以拟合预处理参数"
+    Btr = np.vstack([fp[d] for d in tr])                     # 只看训练化合物
+    keep = (Btr.sum(0) >= 3) & (Btr.sum(0) <= len(tr) - 3)   # 去掉全 0/全 1 的位
+    Dtr = np.vstack([desc[d] for d in tr])                   # 只看训练化合物
+    dmu, dsd = Dtr.mean(0), Dtr.std(0) + 1e-8
+    table = {d: np.concatenate([fp[d][keep], (desc[d] - dmu) / dsd]) for d in have}
     dim = len(next(iter(table.values())))
     M = np.zeros((len(meta), dim), dtype=np.float32)
     for i, d in enumerate(pert):
@@ -186,12 +192,12 @@ def main() -> None:
     a(f"目标 z_Δ 由逐样本掩码最小二乘投影得到（缺失位置不参与）")
     a("")
 
-    psi = psi_context(ctx.meta)
+    psi = psi_context(ctx.meta, sg.train_rows(ctx.meta))
     drugs = sorted(np.unique(ctx.meta[PERT_COL].astype(str).to_numpy()[ctx.train_mask]))
     if args.phi == "onehot":
         phi, note = phi_onehot(ctx.meta, drugs), f"药物 one-hot，{len(drugs)} 个训练化合物"
     else:
-        phi, note = phi_morgan(ctx.meta, args.smiles)
+        phi, note = phi_morgan(ctx.meta, args.smiles, drugs)
         if phi is None:
             a(f"❗φ=morgan 无法构建：{note}")
             a("   → 化学表示这一路需要 data/external/compound_smiles.csv")
@@ -204,6 +210,7 @@ def main() -> None:
     a(f"交互秩 r = {args.r_inter}（P、Q 为固定随机投影，整体岭回归 λ={args.lam}）")
     a("")
 
+    sg.assert_train_only(ctx.meta, ctx.train_mask, what="第 6 步响应模型拟合行")
     Zt = build_targets(ctx, U, mu_d)
     a(f"z_Δ 目标：{Zt.shape}，训练行 {int(ctx.train_mask.sum())}")
     a("")

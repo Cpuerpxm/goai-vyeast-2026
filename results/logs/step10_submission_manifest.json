@@ -1,0 +1,81 @@
+{
+  "prediction_sha256": "adf422544de89d037ee01b1846a17a052f737c62910bce238ab8bf7d438de7a5",
+  "prediction_rows": 4454,
+  "prediction_cols": 5244,
+  "k0": 16,
+  "lam": 30.0,
+  "fit_split": "train",
+  "n_fit_rows": 5920,
+  "design_spec": {
+    "_version": "design/2.0-frozen",
+    "cat_cols": [
+      "Strains",
+      "Medium",
+      "Temperature",
+      "data_source",
+      "instrument"
+    ],
+    "levels": {
+      "Strains": [
+        "STRAIN_A",
+        "STRAIN_C",
+        "STRAIN_E",
+        "STRAIN_D"
+      ],
+      "Medium": [
+        "YNB+CSM+2% galactose",
+        "YNB+CSM+2% glucose"
+      ],
+      "Temperature": [
+        "30",
+        "37"
+      ],
+      "data_source": [
+        "WAYB",
+        "WAYB_rep1",
+        "WAYB_rep2",
+        "WAYC"
+      ],
+      "instrument": [
+        "CAA",
+        "CAB",
+        "CAC",
+        "O",
+        "QE1",
+        "QE2",
+        "WAH"
+      ]
+    },
+    "t_mean": 4.185143213633906,
+    "t_std": 0.8906923609753388,
+    "t_degenerate": false,
+    "with_drug": false,
+    "drug_col": "perturbation_no_concentration",
+    "drugs": [],
+    "fit_rows_digest": "5920:09c1bd1fb154e930",
+    "n_cols": 23
+  },
+  "n_dead_cols": 189,
+  "fallback": 20.502742767333984,
+  "val_scores_out_of_sample": {
+    "total": 0.46938816951788387,
+    "abs_pcc": 0.8984156152327947,
+    "abs_r2": 0.798475423653561,
+    "fc_pcc": 0.3295127762832698,
+    "ctx_resid": 0.3115498039765411,
+    "drug_resid": 0.3508883693092383,
+    "both_time": 0.58399794308326,
+    "dep_dir": 0.8071142955716147,
+    "dep_pcc": 0.6160557438306489,
+    "dep_f1": 0.1628365161746759
+  },
+  "unseen_in_test": {
+    "Strains": {
+      "n_rows": 2663,
+      "levels": [
+        "STRAIN_B",
+        "STRAIN_F"
+      ]
+    }
+  }
+}

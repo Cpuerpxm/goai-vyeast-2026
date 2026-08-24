@@ -1,9 +1,17 @@
 """C-free 可部署骨架：预测函数**不接收**真实对照。
 
-为什么必须有这个（2026-08-05 Pro R2 L1-04）：
-A 分支隔离 `proteome_raw_test.csv`，而测试集的 Water/DMSO 对照就是该文件里的行。
-所以推断时拿不到 C。此前 B1/B2/B3/B4/低秩响应/α 收缩**全部**是 `ŷ = C + Δ̂` 形态，
-它们是 **oracle 诊断模型**，不是可提交模型。
+为什么必须有这个：
+
+理由在 2026-08-24 变了，而且变得更硬。原来的说法是「A 分支隔离
+`proteome_raw_test.csv`，所以推断时拿不到对照」——那是我方的保守假设。
+手册 2026-08 修订版把这个前提推翻了：测试集真值随包发布，供自评参考。
+
+但同一份手册第 17 页还写着，**最终评审用组委会另备的一组独立内部评测集，
+不随赛题发放**。于是结论反而更强：任何在推断时需要读「该样本自己的对照」的模型，
+在那组我们永远拿不到的数据上**根本跑不起来**。这不再是保守假设，是可用性问题。
+
+此前 B1/B2/B3/B4/低秩响应/α 收缩**全部**是 `ŷ = C + Δ̂` 形态，
+它们是 **oracle 诊断模型**，只能用来定水位，不是可提交模型。
 
     ŷ = b̂(metadata)  +  γ · Δ̂(compound, context)
 
@@ -32,49 +40,31 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data import paths
+from data import split_guard as sg
+from models.design import FEATURE_SETS, PERT_COL, encode, freeze, unseen_report
 from scorer import evaluate as ev
 from scorer.config import ScorerConfig
 
-PERT_COL = "perturbation_no_concentration"
 OUT_DIR = os.path.join(paths.RESULTS, "step7_cfree")
 
-FEATURE_SETS = {
-    # 只有生物条件。板号与培养基/温度/时间的 Cramér's V = 0.992，
-    # 加板号等于把这三个生物变量的身份直接背下来，对新板不可泛化。
-    "bio": ["Strains", "Medium", "Temperature"],
-    # 加测量上下文（手册明说测量上下文用于吸收测量变异）
-    "bio_tech": ["Strains", "Medium", "Temperature", "data_source", "instrument"],
-}
+# ❗此处**刻意没有** design(meta, cols, ...) 这个函数。
+# 它在 2026-08-24 被删除（复赛整改 L1-1）：旧实现用 pd.factorize 与 t.mean()/t.std()
+# 就地在传进来的整张表上建词表、算标准化参数，于是 val 行的水平集合与时间分布
+# 进了模型定义，而且不报错。改法不是加个参数，是把函数删掉——留着就会被再次误用。
+# 现在统一走 models.design 的 freeze() + encode()，词表与标准化参数只由拟合行冻结。
 
 
-def design(meta: pd.DataFrame, cols, with_drug: bool, drugs=None) -> np.ndarray:
-    """one-hot + log-time 三次多项式。未见水平整行为 0 → 岭回归自动回退到总体先验。"""
-    blocks = [np.ones((len(meta), 1), dtype=np.float32)]
-    for c in cols:
-        codes, uniq = pd.factorize(meta[c].astype(str))
-        M = np.zeros((len(meta), len(uniq)), dtype=np.float32)
-        M[np.arange(len(meta)), codes] = 1.0
-        blocks.append(M)
-    t = np.log1p(meta["pert_time"].to_numpy(dtype=np.float64))
-    t = (t - t.mean()) / t.std()
-    blocks.append(np.stack([t, t ** 2, t ** 3], axis=1).astype(np.float32))
-    if with_drug:
-        idx = {d: i for i, d in enumerate(drugs)}
-        M = np.zeros((len(meta), len(drugs)), dtype=np.float32)
-        for i, d in enumerate(meta[PERT_COL].astype(str)):
-            j = idx.get(d)
-            if j is not None:
-                M[i, j] = 1.0       # 未见化合物整行为 0 → 响应项归零
-        blocks.append(M)
-    return np.hstack(blocks)
-
-
-def masked_ridge(Z: np.ndarray, Y: np.ndarray, fit_rows: np.ndarray, lam: float):
+def masked_ridge(Z: np.ndarray, Y: np.ndarray, fit_rows: np.ndarray, lam: float,
+                 meta: pd.DataFrame):
     """逐蛋白掩码岭回归。
 
     缺失位置不进 Z'y 的求和，再按该蛋白的观测数重标定。
     ❗Y 必须先逐蛋白中心化：绝对丰度 ~20，直接把缺失当 0 会把预测拉向 0。
+
+    `meta` 是**必填**参数，只为过 `split_guard`：逐蛋白均值 mu 也是「归一化参数」，
+    它和 W 一样必须只由 train 折估计。把守卫放在函数入口，调用方就没有忘记的余地。
     """
+    fit_rows = sg.assert_train_only(meta, fit_rows, what="masked_ridge 拟合行")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         mu = np.nanmean(Y[fit_rows], axis=0, dtype=np.float64)
@@ -146,7 +136,6 @@ def main() -> None:
     val = ctx.rows(ev.VAL_SPLITS)
     # 绝对基线用**全部** train 行（含对照）——对照也是合法的绝对丰度监督
     train_all = (ctx.meta["split_final"] == "train").to_numpy()
-    drugs = sorted(np.unique(ctx.meta[PERT_COL].astype(str).to_numpy()[train_all]))
     cols = FEATURE_SETS[args.features]
 
     L: list[str] = []
@@ -157,6 +146,13 @@ def main() -> None:
     a(f"特征集 {args.features}：{' / '.join(cols)} + log-time 三次多项式")
     a(f"拟合行：split_final=='train' 共 {int(train_all.sum())} 行（含对照）")
     a(f"岭参数 λ={args.lam}；未见水平整行为 0 → 自动回退总体先验")
+    _sp = freeze(ctx.meta, train_all, cols, with_drug=False)
+    a(f"设计矩阵词表与 log-time 标准化参数**只由这 {int(train_all.sum())} 行冻结**"
+      f"（拟合行指纹 {_sp['fit_rows_digest']}）")
+    _un = unseen_report(ctx.meta, _sp)
+    a("  非 train 行落到未见水平的情况："
+      + ("；".join(f"{k} {v['n_rows']} 行 → {v['levels']}" for k, v in _un.items())
+         if _un else "无"))
     a("")
     a("❗与此前基线的根本区别：此前 B1–B4、低秩响应、α 收缩都是 ŷ = C + Δ̂，")
     a("  推断时需要该样本的真实对照。A 分支下测试集对照在被隔离的文件里，拿不到，")
@@ -170,8 +166,9 @@ def main() -> None:
     results = {}
     for label, with_drug in [("C-free 仅上下文 b̂", False),
                              ("C-free b̂ + 药物项 Δ̂", True)]:
-        Z = design(ctx.meta, cols, with_drug, drugs)
-        mu, W = masked_ridge(Z, ctx.X, train_all, args.lam)
+        spec = freeze(ctx.meta, train_all, cols, with_drug=with_drug)
+        Z = encode(ctx.meta, spec)
+        mu, W = masked_ridge(Z, ctx.X, train_all, args.lam, ctx.meta)
         y = (mu[None, :] + Z.astype(np.float64) @ W).astype(np.float32)
         y = np.nan_to_num(y, nan=float(np.nanmedian(mu)))
         f = ev.flatten(ev.evaluate(y, ctx, val, cfg))

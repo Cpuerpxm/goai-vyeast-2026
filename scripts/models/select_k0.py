@@ -28,7 +28,9 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data import paths
-from models.baseline_cfree import FEATURE_SETS, design, masked_ridge
+from data import split_guard as sg
+from models.baseline_cfree import masked_ridge
+from models.design import FEATURE_SETS, encode, freeze
 from models.lowrank import masked_pca
 from scorer import evaluate as ev
 from scorer.config import ScorerConfig
@@ -40,7 +42,10 @@ def fit_lowrank_pipeline(ctx, Z, train_rows, k, lam):
     """训练侧：掩码 PCA 取 U₀ → metadata 岭回归预测 z₀ → 解码回全维。
 
     留出行只提供 metadata，其蛋白值不参与任何一步。
+    ❗低秩基 U₀ 与逐蛋白均值 mu 都是「归一化参数」，入口先过训练边界守卫。
     """
+    train_rows = sg.assert_train_only(ctx.meta, train_rows,
+                                      what="fit_lowrank_pipeline 拟合行")
     Xtr = ctx.X[train_rows]
     mu, U, Ztr = masked_pca(Xtr, k, np.isfinite(Xtr), n_iter=12, center=True, seed=0)
     # 目标是训练行的低秩系数；用 metadata 回归它
@@ -61,9 +66,10 @@ def main() -> None:
     cfg = ScorerConfig()
     ctx = ev.build_context()
     val = ctx.rows(ev.VAL_SPLITS)
-    train_all = (ctx.meta["split_final"] == "train").to_numpy()
+    train_all = sg.train_rows(ctx.meta)
     cols = FEATURE_SETS[args.features]
-    Z = design(ctx.meta, cols, with_drug=False)
+    spec = freeze(ctx.meta, train_all, cols, with_drug=False)
+    Z = encode(ctx.meta, spec)
 
     L: list[str] = []
     a = L.append
@@ -72,6 +78,7 @@ def main() -> None:
     a("=" * 96)
     a(f"特征集 {args.features}：{' / '.join(cols)} + log-time 三次多项式（{Z.shape[1]} 维）")
     a(f"训练行 {int(train_all.sum())}；评估在官方四类 val 上，依据是评分器 total")
+    a(f"词表与 log-time 标准化参数只由训练行冻结（指纹 {spec['fit_rows_digest']}）")
     a("")
     a("对比的是两个**不同的问题**：")
     a("  半观测重建 = 给定该样本一半蛋白，能否补出另一半（插补）→ 此前用它选出 K₀=96")
@@ -90,7 +97,7 @@ def main() -> None:
         a(f"  {k:>5d}" + "".join(f"{f[c]:>11.4f}" for c in cols_out))
 
     # 不走低秩：逐蛋白直接 ridge（等价于满秩）
-    mu, W = masked_ridge(Z, ctx.X, train_all, args.lam)
+    mu, W = masked_ridge(Z, ctx.X, train_all, args.lam, ctx.meta)
     y_full = (mu[None, :] + Z.astype(np.float64) @ W).astype(np.float32)
     y_full = np.nan_to_num(y_full, nan=float(np.nanmedian(mu)))
     f_full = ev.flatten(ev.evaluate(y_full, ctx, val, cfg))
