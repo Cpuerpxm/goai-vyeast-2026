@@ -23,7 +23,7 @@
 ## 代码与发布指纹
 
 - 源码摘要 `tree_digest` = **`858af29db91b7c36`**（`scripts/` 下 42 个 .py，路径排序后逐个 SHA-256 再汇总）
-- 公开仓库发布状态：**未发布**
+- 公开仓库发布状态：**已发布**，tag `semifinal-v1` · commit `f45c93294278e332fa3e1b74cff6e80f436d2b4f` · 与本次源码一致：是
 - 运行环境：Python 3.13.12 · numpy 2.4.4 · pandas 3.0.2 · scipy 1.17.1 · scikit-learn 1.9.0 · rdkit 2024.09.5
 
 <details><summary>逐文件 SHA-256 前 16 位</summary>

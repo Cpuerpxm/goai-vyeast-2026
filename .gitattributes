@@ -1,0 +1,19 @@
+# 全仓库统一 LF。
+#
+# 为什么必须有这一条（2026-08-24 实测踩到）：
+# `results/AUTHORITATIVE.md` 里登记的 `tree_digest` 是 `scripts/` 下全部 .py 的
+# 内容摘要，复现核验的人要靠它确认「拿到的源码就是产出这些数字的那一份」。
+# 而 Windows 上 git 默认 `core.autocrlf=true`，克隆时会把 LF 换成 CRLF——
+# 同一份提交，在 Linux 上算出来的摘要和在 Windows 上算出来的**不一样**，
+# 那个校验就废了。这里强制工作区也用 LF，两边算出同一个值。
+*               text=auto eol=lf
+
+# 二进制文件不许做任何换行转换
+*.png           binary
+*.pdf           binary
+*.gz            binary
+*.npz           binary
+*.npy           binary
+*.docx          binary
+*.xlsx          binary
+*.zip           binary
