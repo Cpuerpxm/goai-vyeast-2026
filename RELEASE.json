@@ -1,10 +1,10 @@
 {
   "remote": "https://github.com/Cpuerpxm/goai-vyeast-2026",
-  "tag": "semifinal-v2",
-  "commit": "9a93b4a8704dabd6e21886fa1363f695b56ebe52",
-  "commit_short": "9a93b4a87",
-  "tree_digest": "46a32e9d2723ff45",
-  "released_at": "2026-08-25T11:08:34+08:00",
-  "n_published_files": 90,
-  "message": "复赛四项提交物就绪：实验结果报告 + 科学意义阐释 + 依赖披露；F5 补第二阳性对照；tree_digest 归一化换行"
+  "tag": "semifinal-v3",
+  "commit": "490c72efe8acc211d57ded62b8981ad182c82f29",
+  "commit_short": "490c72efe",
+  "tree_digest": "7feee6eab9dbd687",
+  "released_at": "2026-08-25T18:21:12+08:00",
+  "n_published_files": 92,
+  "message": "R6 整改：指标 1 按手册改逐样本 + 撤销虚假上界 + 外部资源准备入口 + 三层闭源模型披露"
 }
