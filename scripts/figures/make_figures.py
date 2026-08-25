@@ -252,38 +252,48 @@ def fig5_loco():
     real = lc["gain_ecfp"]
     perms = list(lc["shuffled_gains"])
     orc_nb, orc_self = lc["gain_oracle_neighbor"], lc["gain_oracle_self"]
+    # 第二个阳性对照：神谕特征**走同一条 fit_response**、同一套内层 λ 选择。
+    # 它与 ECFP 那一点唯一的差别就是特征内容，所以必须画在同一张图上——
+    # 只画「绕过模块」的那个对照，答不上「你的模块是不是被正则压死了」这一问。
+    orc_feat = lc.get("gain_oracle_feature_same_module")
 
-    fig, ax = plt.subplots(figsize=(7.0, 4.4))
+    fig, ax = plt.subplots(figsize=(8.6, 4.8))
     ax.axhline(0, color="k", lw=1)
     ax.scatter(np.full(len(perms), 1) + np.linspace(-.12, .12, len(perms)),
                perms, s=55, color=C_GREY, zorder=3, label=f"打乱标签对照（{len(perms)}次）")
     ax.scatter([2], [real], s=150, marker="D", color=C_WARN, zorder=4,
                label="ECFP 结构表示（真实）")
-    ax.scatter([3], [orc_nb], s=110, marker="^", color=C_ALT, zorder=3,
-               label="神谕挑近邻照搬（阳性对照）")
-    ax.scatter([4], [orc_self], s=110, marker="*", color=C_MAIN, zorder=3,
+    if orc_feat is not None:
+        ax.scatter([3], [orc_feat], s=120, marker="s", color="#4E7D5A", zorder=3,
+                   label="神谕特征走同一模块（阳性对照·不绕过模块）")
+    ax.scatter([4], [orc_nb], s=110, marker="^", color=C_ALT, zorder=3,
+               label="神谕挑近邻照搬（阳性对照·绕过模块）")
+    ax.scatter([5], [orc_self], s=110, marker="*", color=C_MAIN, zorder=3,
                label="神谕用自身残差（化合物特异路线的上限）")
     ax.axhspan(min(perms), max(perms), color=C_GREY, alpha=.16)
     ax.text(1, max(perms) + 0.004, "随机水平带", ha="center", fontsize=8.5, color="#555")
     ax.set_ylim(-0.010, orc_self * 1.22)
-    for x, v, dy, va in [(2, real, -0.0032, "top"), (3, orc_nb, 0.0032, "bottom"),
-                         (4, orc_self, 0.0032, "bottom")]:
-        ax.text(x + 0.22, v + dy, f"{v:+.4f}", ha="left", va=va,
+    pts = [(2, real, -0.0032, "top"), (4, orc_nb, 0.0032, "bottom"),
+           (5, orc_self, 0.0032, "bottom")]
+    if orc_feat is not None:
+        pts.append((3, orc_feat, 0.0032, "bottom"))
+    for x, v, dy, va in pts:
+        ax.text(x + 0.20, v + dy, f"{v:+.4f}", ha="left", va=va,
                 fontweight="bold", fontsize=9.5)
-    ax.set_xticks([1, 2, 3, 4])
-    ax.set_xticklabels(["打乱标签", "ECFP\n结构表示", "神谕近邻\n（阳性对照）",
-                        "神谕自身\n（该路线上限）"])
+    ax.set_xticks([1, 2, 3, 4, 5])
+    ax.set_xticklabels(["打乱标签", "ECFP\n结构表示", "神谕特征\n走同一模块",
+                        "神谕近邻\n绕过模块", "神谕自身\n（该路线上限）"])
     ax.set_ylabel("相对「仅上下文」基线的 fc_pcc 增益")
     # 标题必须跟着数走，不能写死一句话。2026-08-24 合规重跑后真实增益
     # 落进了随机带内部（此前是带的下方），写死的旧标题会与图里的点矛盾。
     inside = min(perms) <= real <= max(perms)
     where = "落在随机水平带内部" if inside else (
         "落在随机水平之上" if real > max(perms) else "落在随机水平之下")
-    ax.set_title(f"真实结构表示{where}；而阳性对照明显有增益\n"
-                 "→ 失败在表示层面，不是检验没有功效", pad=12)
+    ax.set_title(f"真实结构表示{where}；两个阳性对照都明显有增益\n"
+                 "→ 失败在表示层面：架构给分，模块也没被正则压死", pad=12)
     ax.legend(fontsize=8.5, loc="upper left", frameon=False,
               bbox_to_anchor=(0.02, 0.98), handletextpad=.4)
-    ax.set_xlim(0.55, 4.55)
+    ax.set_xlim(0.55, 5.7)
     # 折数与化合物数都取自 loco.json 本身。2026-08-24 起 LOCO 宇宙收进 train 折，
     # 化合物从 43 变成 37；再去引 entity_census 的 train_val_compounds 就会
     # 在图注里写出一个与实际留出规模不符的数。
@@ -293,7 +303,9 @@ def fig5_loco():
              f"（宇宙 = split_final=='train'，{n_cmpd} 个合法训练化合物）；"
              "化合物等权；指纹 bit 过滤与描述符"
              "标准化仅在外层训练折内拟合；λ 由内层二次留出选。\n"
-             f"仅上下文基线 fc_pcc = {base:.4f}。该路线上限 +{orc_self:.4f} 换算到总分约 "
+             + ("两个阳性对照分工不同：走同一模块的验「模块还有容量」，"
+                "绕过模块的验「架构与评分口径给分」。" if orc_feat is not None else "")
+             + f"　仅上下文基线 fc_pcc = {base:.4f}。该路线上限 +{orc_self:.4f} 换算到总分约 "
              f"+{0.25*orc_self:.4f}。数据：scripts/models/loco_response.py",
              fontsize=8, color="#555")
     save(fig, "F5_loco_structure")

@@ -22,8 +22,8 @@
 
 ## 代码与发布指纹
 
-- 源码摘要 `tree_digest` = **`858af29db91b7c36`**（`scripts/` 下 42 个 .py，路径排序后逐个 SHA-256 再汇总）
-- 公开仓库发布状态：**已发布**，tag `semifinal-v1` · commit `f45c93294278e332fa3e1b74cff6e80f436d2b4f` · 与本次源码一致：是
+- 源码摘要 `tree_digest` = **`46a32e9d2723ff45`**（`scripts/` 下 42 个 .py，路径排序后逐个 SHA-256 再汇总）
+- 公开仓库发布状态：**已发布**，tag `semifinal-v1` · commit `f45c93294278e332fa3e1b74cff6e80f436d2b4f` · 与本次源码一致：**否**
 - 运行环境：Python 3.13.12 · numpy 2.4.4 · pandas 3.0.2 · scipy 1.17.1 · scikit-learn 1.9.0 · rdkit 2024.09.5
 
 <details><summary>逐文件 SHA-256 前 16 位</summary>
@@ -48,14 +48,14 @@
 | `data/loader.py` | `9551b0b77a3afeea` |
 | `data/paths.py` | `012dddce52c7f8ad` |
 | `data/pkg_leak_scan.py` | `4beecda54c318439` |
-| `data/provenance.py` | `a622a1b3631f8d85` |
+| `data/provenance.py` | `063995f20623437c` |
 | `data/resolve_smiles.py` | `eb74476cdac63ced` |
 | `data/split_guard.py` | `495e823d20e4bdca` |
 | `data/stale_number_scan.py` | `f916541569dbde86` |
 | `data/strain_genome.py` | `4ccd0041680392d4` |
 | `data/test_control_match.py` | `5f7f03d99dff7ae2` |
 | `eval_test/self_eval.py` | `4f78f3c134cfbf07` |
-| `figures/make_figures.py` | `3b88e1bf934f7256` |
+| `figures/make_figures.py` | `c33e250c3cbd905f` |
 | `models/baseline_cfree.py` | `b0c6418afaa3f631` |
 | `models/baselines.py` | `8afc1137f5a9c326` |
 | `models/design.py` | `837b76beef58a555` |
@@ -65,7 +65,7 @@
 | `models/response.py` | `bdb873a4a6c84480` |
 | `models/select_k0.py` | `a289a8ca02bd59a3` |
 | `models/strain_transport.py` | `84870811d44abe64` |
-| `release.py` | `e96d51fa982e7c6f` |
+| `release.py` | `5bf504a8227ab8a4` |
 | `run_all.py` | `eb7afa2a3e079c97` |
 | `scorer/authoritative_results.py` | `9f25c90d6b00bbc6` |
 | `scorer/config.py` | `bf372f32805b5918` |

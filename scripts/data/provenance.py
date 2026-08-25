@@ -36,10 +36,21 @@ _SKIP_DIRS = {"__pycache__", ".ipynb_checkpoints"}
 
 
 def _sha256(path: str) -> str:
+    """源码文件的内容摘要，**换行先归一成 LF 再哈希**。
+
+    ❗2026-08-25 补：不归一化的话，同一份提交在两个平台上算出的摘要不一样。
+    Windows 上 git 默认 `core.autocrlf=true`，克隆时把 LF 换成 CRLF；
+    于是复现核验的人在 Windows 上重算 `tree_digest`，跟权威表里登记的对不上，
+    那个校验对一半的核验者就形同虚设。
+
+    仓库根的 `.gitattributes`（`* text=auto eol=lf`）已经从另一头兜住这件事，
+    但那要求对方用的是带该文件的克隆；这里再做一次归一，两条腿都站住。
+    源码全是文本，无条件归一即可，不需要判类型。
+    """
     h = hashlib.sha256()
     with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
+        data = fh.read()
+    h.update(data.replace(b"\r\n", b"\n"))
     return h.hexdigest()
 
 
@@ -133,6 +144,21 @@ def _selftest() -> None:
     ok += 1
     d1, d2 = tree_digest(), tree_digest()
     assert d1 == d2 and len(d1) == 16, "tree_digest 必须确定性"; ok += 1
+
+    # 换行归一：把一个源码文件复制成 CRLF 版，摘要必须不变。
+    # 这条直接对应「Windows 克隆后重算摘要对不上」那个坑。
+    import tempfile
+
+    src = os.path.join(SCRIPTS_ROOT, "models", "design.py")
+    raw = open(src, "rb").read()
+    with tempfile.TemporaryDirectory() as td:
+        lf = os.path.join(td, "lf.py")
+        crlf = os.path.join(td, "crlf.py")
+        open(lf, "wb").write(raw.replace(b"\r\n", b"\n"))
+        open(crlf, "wb").write(raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        assert open(lf, "rb").read() != open(crlf, "rb").read(), "两份字节应当不同"
+        assert _sha256(lf) == _sha256(crlf), "CRLF 与 LF 必须算出同一个摘要"
+    ok += 1
     r = release_info()
     assert r["_status"] in ("已发布", "未发布"); ok += 1
     e = env_info()

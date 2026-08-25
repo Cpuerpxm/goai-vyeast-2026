@@ -50,7 +50,14 @@ PUBLISH_DIRS = [
 PUBLISH_FILES = [
     ("README.md", "README.md"),
     ("requirements.txt", "requirements.txt"),
+    # 强制全仓库 LF。不发它，Windows 上克隆会把 LF 换成 CRLF，
+    # 同一份提交在两个平台算出的 tree_digest 不一样，权威表里那个校验就失效。
+    (".gitattributes", ".gitattributes"),
     ("results/AUTHORITATIVE.md", "results/AUTHORITATIVE.md"),
+    # 复赛四项提交物里的后三项（第一项就是本仓库本身）
+    ("docs/20_复赛_实验结果报告.md", "docs/20_复赛_实验结果报告.md"),
+    ("docs/21_复赛_科学意义阐释.md", "docs/21_复赛_科学意义阐释.md"),
+    ("docs/22_复赛_依赖披露.md", "docs/22_复赛_依赖披露.md"),
     # ❗`data/external/` **整目录不发**：`compound_smiles.csv` 就是完整化合物名单
     # （54 行，带 SMILES 与 PubChem CID），那正是协议禁止再分发的东西；
     # 初赛公开版也没有它。只发外部资源的来源与版本披露这一份。
@@ -176,6 +183,12 @@ def main() -> None:
     ap.add_argument("--tag", help="要打的 tag，如 semifinal-v1")
     ap.add_argument("--message", default="", help="tag 说明")
     ap.add_argument("--push", action="store_true", help="真的推送到公开仓库")
+    # ❗只推结果、不打新 tag 的场景是刚需，而不是边角情况：
+    # 打完 tag 之后要重跑权威表把 tag 名写进指纹段，再把那份表推上去；
+    # 这一步若顺手又打一个 tag，就永远追不上自己。此时 `scripts/` 必须一个字节没变，
+    # 否则 tree_digest 变了、上一个 tag 与权威表登记的摘要就对不上——下面有硬校验。
+    ap.add_argument("--no-tag", action="store_true",
+                    help="只推结果，不打新 tag（要求 scripts/ 内容零变更）")
     ap.add_argument("--show", action="store_true", help="打印当前 RELEASE.json 后退出")
     ap.add_argument("--workdir", default=None, help="克隆目录，默认用临时目录")
     args = ap.parse_args()
@@ -233,7 +246,28 @@ def main() -> None:
         return
 
     run(["git", "add", "-A"], cwd=work)
-    if run(["git", "status", "--porcelain"], cwd=work):
+
+    # ❗判据必须用 `git diff --cached`，不能用 `git status --porcelain`：
+    # 后者把纯换行差异也算成修改（本机 core.autocrlf=true，检出是 CRLF、
+    # 我们拷进去的是 LF），会把 42 个源码文件全部误报成被改动。
+    staged = run(["git", "diff", "--cached", "--name-only"], cwd=work)
+    if args.no_tag:
+        touched = run(["git", "diff", "--cached", "--name-only", "--", "scripts"], cwd=work)
+        print(f"\n[--no-tag] scripts/ 内容变更：{touched or '无（正确）'}")
+        if touched:
+            raise SystemExit(
+                "[发布中止] --no-tag 要求 scripts/ 零变更，否则 tree_digest 会变，"
+                "上一个 tag 与权威表登记的摘要就对不上。请改用正常发布并打新 tag。")
+        if not staged:
+            print("[无改动] 不需要推送")
+            return
+        run(["git", "commit", "-m", msg], cwd=work)
+        run(["git", "push", "origin", "HEAD"], cwd=work)
+        commit = run(["git", "rev-parse", "--short", "HEAD"], cwd=work)
+        print(f"[已推送] commit {commit}（未打新 tag）")
+        return
+
+    if staged:
         run(["git", "commit", "-m", msg], cwd=work)
     commit = run(["git", "rev-parse", "HEAD"], cwd=work)
     run(["git", "tag", "-a", args.tag, "-m", msg], cwd=work)

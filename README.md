@@ -35,6 +35,15 @@ python scripts/models/predict_test.py
 # -> results/step10_submission/submission_manifest.json  （含预测文件 SHA-256 与冻结的设计 spec）
 ```
 
+## 复赛提交物
+
+| # | 材料 | 文件 |
+|---|---|---|
+| 1 | 可运行代码仓库 | 本仓库；入口见上一节，环境与复现见下一节 |
+| 2 | 实验结果报告 | [`docs/20_复赛_实验结果报告.md`](docs/20_复赛_实验结果报告.md) |
+| 3 | 科学意义阐释 | [`docs/21_复赛_科学意义阐释.md`](docs/21_复赛_科学意义阐释.md) |
+| 4 | 依赖披露 | [`docs/22_复赛_依赖披露.md`](docs/22_复赛_依赖披露.md) |
+
 ## 环境与依赖
 
 | 项 | 值 |
@@ -43,13 +52,39 @@ python scripts/models/predict_test.py
 | 直接依赖 | numpy · pandas · scipy · scikit-learn · matplotlib · rdkit |
 | 版本锁定 | [`requirements.txt`](requirements.txt) |
 | GPU | 不需要 |
-| 联网 | 不需要（外部资源已随仓库披露来源与校验值，见下） |
-| 随机性 | 全部固定种子；`scripts/data/provenance.py` 可复算源码摘要与环境快照 |
+| 联网 | 不需要（外部资源已一次性取回并登记校验值，见下） |
+| 商业 API / 闭源模型 | **完全未使用** |
 
 外部公开资源（手册要求披露来源与版本）：
 [`data/external/yeast1011/SOURCE.md`](data/external/yeast1011/SOURCE.md)
 ——1011 Yeast Genomes Project 的 SNP 距离矩阵，含下载地址、日期、SHA-256、
 以及它在本项目里被用来做什么、**没有**被用来做什么。
+另一项是 PubChem 公开转储（化合物名 → SMILES），见依赖披露第三节。
+
+## 随机种子与复现说明
+
+全流程**没有任何未固定的随机源**。种子写死在代码里，不从命令行传、
+也不读环境变量——避免出现「换个种子结果就变」却无从追溯的情况。
+
+| 随机环节 | 种子 | 位置 |
+|---|---|---|
+| 掩码 EM-PCA 的随机化 SVD | `0` | `scripts/models/lowrank.py` `masked_pca` |
+| LOCO 外层折的化合物分配 | `20260805` | `scripts/models/loco_response.py` |
+| shuffled-label 对照 | `1000 + s`（s 为重复序号） | 同上 |
+| 共享参照的同上下文置换 | `20260805` | `scripts/scorer/authoritative_results.py` |
+| 分组 bootstrap / 配对版 | `20260805` / `20260806` | `scripts/scorer/evaluate.py` |
+| C-free 守卫的置换 | `0` | `scripts/models/baseline_cfree.py` |
+| 菌株搬运的随机坐标零假设 | `20260824` | `scripts/models/strain_transport.py` |
+| 合规探针的破坏 | `20260824` | `scripts/audit/train_boundary_probe.py` |
+
+**怎么确认拿到的源码就是产出这些数字的那一份**：`results/AUTHORITATIVE.md`
+的「代码与发布指纹」一节登记了 `tree_digest`（`scripts/` 下全部 `.py` 按路径排序后
+逐个 SHA-256 再汇总）与公开仓库的 tag、commit。clone 对应 tag 后按
+`python scripts/data/provenance.py` 的规则重算，应得到同一个值。
+仓库根的 `.gitattributes` 强制全仓库 LF，保证 Windows 与 Linux 上算出同一个值。
+
+完整的依赖、授权、商业 API 与已有项目披露见
+[`docs/22_复赛_依赖披露.md`](docs/22_复赛_依赖披露.md)。
 
 ## 训练边界（这次整改的重点）
 
