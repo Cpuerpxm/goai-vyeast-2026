@@ -239,7 +239,7 @@ def fig4_baseline_ladder():
 
 
 def fig5_loco():
-    """LOCO：结构表示 vs 打乱对照 vs 两级神谕上限。数值取自权威表。
+    """LOCO：结构表示 vs 打乱对照 vs 两个目标派生参考。数值取自权威表。
 
     这些数原先是手抄进来的常量，正是 F1/F4 过期那个问题的同一种病。
     现在统一走权威表的 loco 分区（由 loco_response.py 写出的 loco.json 收录）。
@@ -269,7 +269,7 @@ def fig5_loco():
     ax.scatter([4], [orc_nb], s=110, marker="^", color=C_ALT, zorder=3,
                label="神谕挑近邻照搬（阳性对照·绕过模块）")
     ax.scatter([5], [orc_self], s=110, marker="*", color=C_MAIN, zorder=3,
-               label="神谕用自身残差（化合物特异路线的上限）")
+               label="神谕用自身残差（目标派生参考·非上界）")
     ax.axhspan(min(perms), max(perms), color=C_GREY, alpha=.16)
     ax.text(1, max(perms) + 0.004, "随机水平带", ha="center", fontsize=8.5, color="#555")
     ax.set_ylim(-0.010, orc_self * 1.22)
@@ -282,7 +282,7 @@ def fig5_loco():
                 fontweight="bold", fontsize=9.5)
     ax.set_xticks([1, 2, 3, 4, 5])
     ax.set_xticklabels(["打乱标签", "ECFP\n结构表示", "神谕特征\n走同一模块",
-                        "神谕近邻\n绕过模块", "神谕自身\n（该路线上限）"])
+                        "神谕近邻\n绕过模块", "神谕自身\n（目标派生参考）"])
     ax.set_ylabel("相对「仅上下文」基线的 fc_pcc 增益")
     # 标题必须跟着数走，不能写死一句话。2026-08-24 合规重跑后真实增益
     # 落进了随机带内部（此前是带的下方），写死的旧标题会与图里的点矛盾。

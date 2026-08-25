@@ -12,16 +12,31 @@ GOAI 世界人工智能开源大赛 · 赛道三 AI for Research · 算法赛题
 ## 快速开始
 
 ```bash
+# 1) 环境
 python -m venv .venv
-.venv/Scripts/activate            # Windows；Linux/macOS 用 source .venv/bin/activate
+.venv\Scriptsctivate           # Windows PowerShell / CMD
+# source .venv/bin/activate       # Linux / macOS
 pip install -r requirements.txt
 
-# 把组委会发的四个文件放进 data/raw/：
-#   metadata_train_val.csv  proteome_raw_train_val.csv
-#   metadata_test.csv       proteome_raw_test.csv
+# 2) 把组委会发的四个文件放进 data/raw/：
+#    metadata_train_val.csv  proteome_raw_train_val.csv
+#    metadata_test.csv       proteome_raw_test.csv
 
-python scripts/run_all.py         # 一条命令跑完全流程，产出 prediction.csv
+# 3) 外部资源准备（**需联网，只跑这一次**）
+python scripts/setup_external.py
+
+# 4) 主流程（全程离线）
+python scripts/run_all.py         # 19 步，产出 prediction.csv
 ```
+
+⚠ 第 3 步不可省。仓库按参赛协议不含赛事化合物名单，所以 `compound_smiles.csv`
+必须在本机由 PubChem 公开转储重建；菌株基因组的 SNP 距离矩阵同理需要下载。
+`setup_external.py` 会下载、核对 SHA-256 并重建，`--check` 可先看现状。
+`run_all.py` 启动时也会先检查一遍，缺什么会立刻指名报出，而不是跑到一半才失败。
+
+⚠ 其中 4 个化合物的名称在 PubChem 同义词表里查不到，需要一份 4 条的别名映射。
+该文件含赛事化合物名，按协议不进公开仓库，**随提交物一并交给组委会**；
+放到 `data/external/compound_aliases.json` 即可完整重建 54/54。
 
 `run_all.py` 的步骤清单用 `python scripts/run_all.py --list` 看，
 中途接续用 `--from step7`，单跑一步用 `--only step9`。
@@ -52,19 +67,21 @@ python scripts/models/predict_test.py
 | 直接依赖 | numpy · pandas · scipy · scikit-learn · matplotlib · rdkit |
 | 版本锁定 | [`requirements.txt`](requirements.txt) |
 | GPU | 不需要 |
-| 联网 | 不需要（外部资源已一次性取回并登记校验值，见下） |
-| 商业 API / 闭源模型 | **完全未使用** |
+| 联网 | 主流程不需要。仅 `scripts/setup_external.py` 需联网一次，取回后登记校验值 |
+| 运行时商业 API / 闭源权重 | **无**。模型流水线不含任何 API 调用或第三方权重 |
+| 开发与审阅辅助 | **用了闭源模型**：代码与材料初稿由 Claude Code 编写，GPT Pro 会诊 6 轮、Gemini 3.7 Flash 语言评审 1 轮。逐项披露见[`docs/22_复赛_依赖披露.md`](docs/22_复赛_依赖披露.md) 第二节 |
 
 外部公开资源（手册要求披露来源与版本）：
 [`data/external/yeast1011/SOURCE.md`](data/external/yeast1011/SOURCE.md)
 ——1011 Yeast Genomes Project 的 SNP 距离矩阵，含下载地址、日期、SHA-256、
 以及它在本项目里被用来做什么、**没有**被用来做什么。
-另一项是 PubChem 公开转储（化合物名 → SMILES），见依赖披露第三节。
+另一项是 PubChem 公开转储（化合物名 → SMILES），见依赖披露第四节。
 
 ## 随机种子与复现说明
 
-全流程**没有任何未固定的随机源**。种子写死在代码里，不从命令行传、
-也不读环境变量——避免出现「换个种子结果就变」却无从追溯的情况。
+算法层的随机源**全部显式固定**，种子写死在代码里，不从命令行传、也不读环境变量。
+⚠ 边界：BLAS 多线程归约次序、Python 哈希种子这类运行时因素不在此列，
+可能带来末位浮点差异，所以逐位复现只在**同一环境内**成立。
 
 | 随机环节 | 种子 | 位置 |
 |---|---|---|
@@ -81,7 +98,8 @@ python scripts/models/predict_test.py
 的「代码与发布指纹」一节登记了 `tree_digest`（`scripts/` 下全部 `.py` 按路径排序后
 逐个 SHA-256 再汇总）与公开仓库的 tag、commit。clone 对应 tag 后按
 `python scripts/data/provenance.py` 的规则重算，应得到同一个值。
-仓库根的 `.gitattributes` 强制全仓库 LF，保证 Windows 与 Linux 上算出同一个值。
+仓库根的 `.gitattributes` 强制全仓库 LF，保证 Windows 与 Linux 上算出同一个 `tree_digest`
+（它保的是代码指纹一致，不保证浮点结果逐位一致——那取决于 BLAS 后端）。
 
 完整的依赖、授权、商业 API 与已有项目披露见
 [`docs/22_复赛_依赖披露.md`](docs/22_复赛_依赖披露.md)。
@@ -121,7 +139,7 @@ python scripts/audit/train_boundary_probe.py
 
 | 目录 | 内容 |
 |---|---|
-| `scripts/scorer/` | 官方六项指标的复刻实现、评估台、权威结果表生成器（61 项单元测试） |
+| `scripts/scorer/` | 官方六项指标的复刻实现、评估台、权威结果表生成器（65 项单元测试） |
 | `scripts/data/` | 数据管线、对照匹配、训练边界守卫、源码指纹、菌株基因组坐标、脱敏与泄漏扫描 |
 | `scripts/models/` | 设计矩阵冻结/编码、基线阶梯、低秩分解、响应模型、C-free 可部署骨架、整化合物留出验证、未见菌株效应搬运 |
 | `scripts/audit/` | 诊断脚本与两个合规检验（训练边界探针、违规量化） |
@@ -134,10 +152,13 @@ python scripts/audit/train_boundary_probe.py
 
 ## 四条也许对别人有用的东西
 
-**1 · 评分口径的复刻与参数化。** 官方六项指标有多处未定义（多对照如何合并、
-常数向量导致相关系数未定义时怎么办、整条聚合轴未定义时怎么办、未定义模块如何进总分）。
-我们把这些全做成参数而非写死，并配 61 项测试。开发过程中这套测试捕获了三类
-会系统性改变模型排名的实现缺陷。
+**1 · 评分口径的复刻与参数化。** 官方六项指标有多处未在手册中定义（多对照如何合并、
+常数向量导致相关系数未定义时怎么办、指标 2/3/4/6 沿哪条轴聚合、未定义模块如何进总分）。
+我们把这些做成参数而非写死，并配 65 项测试。
+
+⚠ 指标 1 的轴**不在**未定义之列：手册第 17 页写死了「逐样本 corr / R²」。
+我们一度把它也当成未定义项做了两轴平均，2026-08-25 经外部审查发现并改回。
+这次教训写在 `scripts/scorer/config.py` 的 `absolute_axis` 注释里。
 
 **2 · 共享参照效应。** 评分定义中预测与真值两侧减去同一条实测对照，
 这会让一个对药物一无所知的模型在扰动指标上拿到不低的分数。
@@ -172,7 +193,7 @@ python scripts/audit/train_boundary_probe.py     # 训练边界合规探针（�
 菌株代号与化合物名换成稳定占位符（`STRAIN_A` / `COMPOUND_01`，编号与初赛公开版一致），
 再由 `scripts/data/pkg_leak_scan.py` 复扫一遍确认。源码本身不含任何赛事实体名。
 
-要复现需自行从组委会获取数据并置于 `data/raw/`。
+要复现需自行从组委会获取数据并置于 `data/raw/`，再跑一次 `scripts/setup_external.py`。
 
 ## 许可证
 

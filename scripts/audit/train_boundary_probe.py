@@ -385,10 +385,60 @@ def main() -> None:
     a("    —— 分数变了而模型没变，正是「val 只用于评估、不进拟合」的样子。")
     a("")
 
+    # ---------------------------------------------------------- 三 · test 元数据
+    # ❗2026-08-25（GPT Pro R6 · L2-01）：上一段只破坏了 metadata_train_val 里
+    # split_final != 'train' 的行，**没有碰独立的 metadata_test.csv**。
+    # 于是它能证明「输出不依赖 train_val 的非 train 行」，却证明不了
+    # 「模型参数没有从 test 元数据估计过任何统计量」——手册第 17 页两样都禁。
+    a("-" * 92)
+    a("三 · 测试集元数据探针：破坏 metadata_test 后，模型参数必须原样不动")
+    a("-" * 92)
+    a("  与上一段的差别：这次改的是 test 侧。预测**理应**跟着变（输入变了），")
+    a("  但冻结的设计 spec 与 mu / U / W **必须逐位不变**——")
+    a("  它们只许由 train 折估计，test 元数据在模型里连一个统计量都不该出现。")
+
+    from data import loader as _loader
+    import models.predict_test as _pt
+
+    meta_te_real = _loader.load_metadata("test")
+    rng2 = np.random.default_rng(20260825)
+    meta_te_bad = meta_te_real.copy()
+    for c in CAT_FIELDS:
+        if c in meta_te_bad.columns:
+            meta_te_bad[c] = [f"__CORRUPT_TEST_{c}_{k}__" for k in range(len(meta_te_bad))]
+    meta_te_bad["pert_time"] = rng2.integers(10_000, 99_999, size=len(meta_te_bad))
+
+    _orig = _loader.load_metadata
+
+    def _patched(which="train_val", *a_, **k_):
+        return meta_te_bad.copy() if which == "test" else _orig(which, *a_, **k_)
+
+    try:
+        _pt.loader.load_metadata = _patched
+        y_c, _, spec_c, model_c, _, _ = build_submission(ctx, args.k0, args.lam)
+    finally:
+        _pt.loader.load_metadata = _orig
+
+    sig_c = _model_signature(spec_c, model_c, y_c)
+    model_same = all(sig_a[k] == sig_c[k] for k in
+                     ("design_spec", "mu", "U", "W", "dead_cols", "n_dead", "fallback"))
+    pred_changed = sig_a["prediction_test"] != sig_c["prediction_test"]
+    a("")
+    a(f"  破坏 test 元数据 {len(meta_te_bad)} 行（类别字段换假水平、时间换乱数）")
+    a(f"  设计 spec / mu / U / W / 保留蛋白列表：{'逐位相同' if model_same else '**有变化**'}")
+    a(f"  test 预测：{'变了（本该如此，输入变了）' if pred_changed else '**没变，反常**'}")
+    ok_test = model_same and pred_changed
+    a(f"  -> {'PASS' if ok_test else 'FAIL'}：模型参数与 test 元数据无关，"
+      "而预测确实依赖它——")
+    a("     这正是「只用 train 折估计、对 test 只做编码」应有的样子。")
+    a("")
+
     a("-" * 92)
     a(f"结论：静态扫描 {'PASS' if static_ok else 'FAIL'} · "
-      f"经验探针 {'PASS' if ok else 'FAIL'}")
+      f"train_val 探针 {'PASS' if ok else 'FAIL'} · "
+      f"test 元数据探针 {'PASS' if ok_test else 'FAIL'}")
     a("-" * 92)
+    ok = ok and ok_test
 
     txt = "\n".join(L)
     print(txt)
@@ -404,6 +454,11 @@ def main() -> None:
         "n_corrupted_cells": changed,
         "signature_original": sig_a,
         "signature_corrupted": sig_b,
+        "signature_test_metadata_corrupted": sig_c,
+        "test_metadata_probe_ok": bool(ok_test),
+        "test_metadata_probe_note": (
+            "破坏 metadata_test 后：模型参数逐位不变（不从 test 估计任何统计量），"
+            "预测随输入改变（对 test 只做编码）。补 GPT Pro R6 · L2-01 指出的盲区。"),
         "val_total_original": val_a["total"],
         "val_total_after_corruption": val_b["total"],
         "_provenance": provenance.stamp(),

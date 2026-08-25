@@ -162,11 +162,23 @@ def _both_axes(y_true: np.ndarray, y_pred: np.ndarray, cfg: ScorerConfig, fn) ->
 # ----------------------------------------------------------------- 六项指标
 
 
+def _absolute_axes(y_true, y_pred, cfg, fn) -> float:
+    """指标 1 专用的轴组合：默认**只走样本轴**。
+
+    手册第 17 页原文：「适用全部划分。逐样本 corr / R²（每个样本的预测向量对真值向量）」。
+    轴在这里是**已定义**的，不属于「官方未定义项」，因此不能套 `axis_combine`
+    那条为指标 2/3/4/6 准备的两轴平均规则（2026-08-25 · GPT Pro R6 L1-01）。
+    """
+    from dataclasses import replace as _replace
+
+    return _both_axes(y_true, y_pred, _replace(cfg, axis_combine=cfg.absolute_axis), fn)
+
+
 def metric_absolute(y_true, y_pred, cfg):
-    """指标 1 · 绝对保真度 (20%)。逐样本 + 逐蛋白的 corr 与 R²。"""
+    """指标 1 · 绝对保真度 (20%)。**逐样本** corr 与 R²（手册明文，非未定义项）。"""
     return {
-        "pcc": _both_axes(y_true, y_pred, cfg, pcc),
-        "r2": _both_axes(y_true, y_pred, cfg, r2),
+        "pcc": _absolute_axes(y_true, y_pred, cfg, pcc),
+        "r2": _absolute_axes(y_true, y_pred, cfg, r2),
     }
 
 
@@ -185,8 +197,9 @@ def metric_both_time(y_true, y_pred, d_true, d_pred, cfg):
     fc = _both_axes(d_true, d_pred, cfg, pcc)
     if cfg.both_time_parts == "fc_only":
         return {"pcc": fc, "fc": fc, "abs_pcc": np.nan, "abs_r2": np.nan}
-    a_pcc = _both_axes(y_true, y_pred, cfg, pcc)
-    a_r2 = _both_axes(y_true, y_pred, cfg, r2)
+    # 「绝对保真度」这个分量与指标 1 是同一个量，轴口径必须一致：只走样本轴
+    a_pcc = _absolute_axes(y_true, y_pred, cfg, pcc)
+    a_r2 = _absolute_axes(y_true, y_pred, cfg, r2)
     absolute = np.nanmean([v for v in (a_pcc, a_r2) if np.isfinite(v)]) \
         if np.isfinite([a_pcc, a_r2]).any() else np.nan
     parts = [v for v in (fc, absolute) if np.isfinite(v)]

@@ -1,31 +1,61 @@
-# 赛事数据，受《选手参赛协议》第八条约束，不得再分发。
-# ❗必须写成 /data/ 锚定仓库根：裸写 data/ 会匹配任意层级的同名目录，
-# 把 scripts/data/（对照匹配管线与三道数字防线的代码）也一并排除，
-# 而文档正把那些脚本列为开源交付物。2026-08-07 转公开前发现。
-/data/
-*.csv
-*.zip
+# 这份是**公开仓库**用的 .gitignore，由 scripts/release.py 发布为仓库根的 .gitignore。
+# 本地开发用的是同目录下的 .gitignore（规则更宽，允许本地留着别名表等）。
+#
+# ❗历史坑（2026-08-25 · GPT Pro R6 L1-03 抓到）：
+# 上一版这里写的是 `/data/` —— 锚定仓库根是对的（裸写 `data/` 会连
+# `scripts/data/` 一起排除，那里是对照匹配管线与三道数字防线的代码），
+# 但它同时也把 `data/external/yeast1011/SOURCE.md` 挡掉了。
+# 那份文件是手册第 17 页明文要求的「外部公开资源须披露来源与版本」，
+# 我的发布清单里明明写着要发它，发布闸门却只验了暂存目录、没验提交后的树，
+# 于是一路绿灯，而披露实际上从未公开过。
+#
+# 现在改成**逐项排除**，并对必须公开的那几个文件显式放行。
 
-# 大体量派生产物（由赛事数据算出，同样不得公开）
+# --- 赛事数据本体：受《选手参赛协议》第八条约束，绝不再分发 ---
+/data/raw/
+/data/_pubchem_dump/
+prediction*.csv
+
+# --- 默认挡住 data/ 下的一切，再逐项放行 ---
+/data/**
+!/data/external/
+!/data/external/**/
+# 外部资源的来源与版本披露（手册强制要求公开）
+!/data/external/**/*.md
+# setup_external.py 写的取回记录（只含 URL、日期、SHA-256，不含数据）
+!/data/external/PROVENANCE.json
+
+# --- 含赛事实体名，随提交物私交组委会，不进公开仓库 ---
+# compound_smiles.csv 是完整化合物名单 + 结构；alias 表含化合物名。
+# 复现路径靠 scripts/setup_external.py 重建，见 README「外部资源准备」。
+/data/external/compound_smiles.csv
+/data/external/compound_aliases.json
+/data/external/entity_alias.json
+
+# --- 大体量派生产物 ---
 *.npy
 *.npz
 *.pkl
 *.pt
-prediction*.csv
+*.ckpt
+*.h5
+*.zip
 
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
 .venv/
 venv/
 .ipynb_checkpoints/
 
-# 临时
+# --- 临时与备份 ---
 *.bak
+*.rollbak
 *.tmp
 ~$*
 
-# harness 会话日志，含对话内容，绝不公开
+# --- harness 会话日志，含对话内容，绝不公开 ---
 _logs/
 **/_logs/
 sessions.jsonl
+_pkg_for_gpt_pro/

@@ -122,10 +122,14 @@ def baselines_and_cfree(ctx, cfg) -> dict:
         print(f"  ⚠ 化学近邻基线跳过：{why}")
 
     p3o, _ = b3o_oracle_neighbor(ctx, fb, val)
-    # 命名口径（2026-08-07 修）：原称「作弊」不准确。它并非违规操作，
-    # 而是给定「已知每个测试样本真值、可在验证集里取最近邻」这一不可实现的
-    # 前提下的成绩，衡量的是响应空间本身能承载多少信号，故称响应空间上限。
-    out["oracle_C_based"]["B3o 神谕近邻(响应空间上限)"] = ev.flatten(ev.evaluate(p3o, ctx, val, cfg))
+    # 命名口径两次修订：
+    #  2026-08-07 —— 原称「作弊」不准确，它并非违规操作，而是给定
+    #    「已知每个留出样本真值、可在训练化合物里取最近邻」这一不可实现前提下的成绩。
+    #  2026-08-25（GPT Pro R6 L1-02 的同类问题）—— 也不能叫「上限」。
+    #    它是按**谱级相关**挑出的最近邻，而评分是**逐样本相关的平均**；
+    #    前者的最大化解不等于后者的最大化解，所以它不构成任何族的上界。
+    #    统一改叫「目标派生参考」：用留出真值构造出来的一个比照点，仅此而已。
+    out["oracle_C_based"]["B3o 神谕近邻(目标派生参考)"] = ev.flatten(ev.evaluate(p3o, ctx, val, cfg))
 
     mu_g = b0_global_mean(ctx)[0]
     alpha_best, alpha_val = None, -np.inf
@@ -156,8 +160,12 @@ def baselines_and_cfree(ctx, cfg) -> dict:
         if k == 16:
             out["c_free"]["低秩 K0=16 + ridge"] = f
             y_best = y
+    # ❗2026-08-25（GPT Pro R6 · L2-07）：60 次够支撑「差值明显为正」这个粗判断，
+    # 不够支撑 2.5% / 97.5% 分位的点估计——分位数在尾部本来就最不稳。
+    # 上一版还把低重抽样次数称为「保守」，那是把样本不足说成了谨慎。
+    # 提到 500 次。代价是权威表这一步从约 5 分钟涨到约 40 分钟，值得。
     out["paired_bootstrap_lowrank_vs_fullrank"] = ev.grouped_bootstrap_paired(
-        y_full, y_best, ctx, val, n_boot=60, cfg=cfg)
+        y_full, y_best, ctx, val, n_boot=500, cfg=cfg)
 
     # 分场景：总分是四类 val 混在一起的加权和，看不出模型在哪类外推上垮。
     # 评审必问"S2 未见菌株占测试集一半，你在那上面怎么样"，故单列。
@@ -500,7 +508,7 @@ def main() -> None:
               f"| [阳性对照2] 神谕特征走同一模块 | — | "
               f"{lc.get('gain_oracle_feature_same_module', float('nan')):+.4f} |",
               f"| [阳性对照] 神谕残差照搬 | — | {lc.get('gain_oracle_neighbor', float('nan')):+.4f} |",
-              f"| [上限] 神谕自身平均残差 | — | {lc.get('gain_oracle_self', float('nan')):+.4f} |",
+              f"| [参考] 神谕自身平均残差（目标派生，**非上界**） | — | {lc.get('gain_oracle_self', float('nan')):+.4f} |",
               "",
               f"- shuffled-label 对照 {lc.get('n_perm')} 次：均值 "
               f"{(lc.get('shuffled_mean') if lc.get('shuffled_mean') is not None else float('nan')):+.4f}"

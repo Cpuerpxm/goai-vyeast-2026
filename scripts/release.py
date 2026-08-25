@@ -53,6 +53,10 @@ PUBLISH_FILES = [
     # 强制全仓库 LF。不发它，Windows 上克隆会把 LF 换成 CRLF，
     # 同一份提交在两个平台算出的 tree_digest 不一样，权威表里那个校验就失效。
     (".gitattributes", ".gitattributes"),
+    # ❗公开仓库用的忽略规则与本地不同：本地允许留着别名表等，公开版必须逐项排除。
+    # 上一版公开仓库的 `/data/` 把手册强制要求公开的 SOURCE.md 一并挡掉了
+    # （2026-08-25 · GPT Pro R6 L1-03）。现在由本清单发布，不再各写各的。
+    (".gitignore.public", ".gitignore"),
     ("results/AUTHORITATIVE.md", "results/AUTHORITATIVE.md"),
     # 复赛四项提交物里的后三项（第一项就是本仓库本身）
     ("docs/20_复赛_实验结果报告.md", "docs/20_复赛_实验结果报告.md"),

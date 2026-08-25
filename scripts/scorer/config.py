@@ -68,7 +68,21 @@ class ScorerConfig:
     both_time_parts: Literal["fc_and_absolute", "fc_only"] = "fc_and_absolute"
 
     # ---- 聚合 ----
-    # 样本轴与蛋白轴分别聚合后如何组合（官方未定义）
+    # ❗指标 1（绝对保真度）的轴**不是**未定义项，手册第 17 页把它写死了：
+    #   「绝对保真度（全蛋白质组真实性）| 20% | 适用全部划分。
+    #     逐样本 corr / R²（每个样本的预测向量对真值向量）」
+    # 括号里连定义都给了——是每个样本的预测向量对真值向量，没有蛋白轴分量。
+    # 指标 5 里「以绝对保真度为主」的那个分量同理。
+    #
+    # 2026-08-25 前的实现把指标 1 也走了两轴平均，等于给官方已定义的口径
+    # 自行添加了一个分量。后果是系统性的：全局均值谱在每个蛋白上都是常数，
+    # 蛋白轴必然未定义并被置 0，于是逐样本的 0.9535 被机械减半成 0.4768，
+    # 而我们还把这次减半当成「修 bug」写进了材料。实际是引入 bug。
+    # 由 GPT Pro R6 · L1-01 指出，已对照手册原文核实。
+    absolute_axis: Literal["sample_only", "mean", "protein_only"] = "sample_only"
+
+    # 指标 2/3/4/6 的轴**确实**未定义：手册只写「计算 PCC(Δ_pred, Δ_true)」，
+    # 没说沿哪条轴聚合。这一项保持两轴平均，并在材料里明确标为未定义项。
     axis_combine: Literal["mean", "sample_only", "protein_only"] = "mean"
     agg: Literal["mean", "median"] = "mean"
 

@@ -237,6 +237,43 @@ bt2 = metric_both_time(y_t, y_p, d_t, d_p,
                        ScorerConfig(min_valid_points=30, both_time_parts="fc_only"))
 check("fc_only 可切回旧口径", np.isclose(bt2["pcc"], bt2["fc"]))
 
+# --- R6-L1-01：指标 1 的轴是手册**已定义**的「逐样本」，不是未定义项 ---
+# 这组 fixture 刻意让样本轴与蛋白轴的结果差得很远，否则测试对本条毫无判别力：
+# 每个样本内部的蛋白排序几乎全对（样本轴 PCC 高），但每个蛋白跨样本的排序被打乱
+# （蛋白轴 PCC 低）。若实现悄悄退回两轴平均，返回值会明显低于样本轴值。
+from metrics import metric_absolute, _absolute_axes                    # noqa: E402
+
+n_s, n_p = 60, 400
+prot_level = RNG.normal(20.0, 3.0, size=n_p)          # 蛋白间的丰度差异：很大
+samp_shift = RNG.normal(0.0, 0.05, size=n_s)          # 样本间的差异：很小
+truth_ax = prot_level[None, :] + samp_shift[:, None] + RNG.normal(0, 0.05, (n_s, n_p))
+# 预测保住蛋白轮廓（样本轴相关会很高），但把跨样本的那点微弱差异彻底打乱
+pred_ax = prot_level[None, :] + RNG.normal(0, 0.05, (n_s, n_p))
+
+cfg_s = ScorerConfig(min_valid_points=30, absolute_axis="sample_only")
+cfg_m = ScorerConfig(min_valid_points=30, absolute_axis="mean")
+v_sample = _absolute_axes(truth_ax, pred_ax, cfg_s, pcc)
+v_mean = _absolute_axes(truth_ax, pred_ax, cfg_m, pcc)
+det_ax = last_axis_detail()
+check("fixture 有判别力：样本轴与蛋白轴结果明显不同",
+      abs(det_ax["sample"] - det_ax["protein"]) > 0.30,
+      f"样本轴 {det_ax['sample']:.4f} vs 蛋白轴 {det_ax['protein']:.4f}")
+check("指标 1 返回的就是逐样本值，不是两轴平均",
+      np.isclose(v_sample, det_ax["sample"]) and not np.isclose(v_sample, v_mean),
+      f"逐样本 {v_sample:.4f} / 两轴平均 {v_mean:.4f}")
+ma = metric_absolute(truth_ax, pred_ax, ScorerConfig(min_valid_points=30))
+check("metric_absolute 默认走逐样本（手册第 17 页明文）",
+      np.isclose(ma["pcc"], v_sample),
+      f"metric_absolute {ma['pcc']:.4f} vs 逐样本 {v_sample:.4f}")
+
+# 指标 5 的绝对分量必须与指标 1 同轴，否则同一个量在两处口径不一
+bt_ax = metric_both_time(truth_ax, pred_ax, d_t[:n_s, :n_p] if d_t.shape[0] >= n_s else
+                         RNG.normal(0, .4, (n_s, n_p)),
+                         RNG.normal(0, .4, (n_s, n_p)), ScorerConfig(min_valid_points=30))
+check("指标 5 的绝对分量与指标 1 同轴",
+      np.isclose(bt_ax["abs_pcc"], ma["pcc"]),
+      f"指标5 abs_pcc {bt_ax['abs_pcc']:.4f} vs 指标1 pcc {ma['pcc']:.4f}")
+
 # ------------------------------------------------------------------ 汇总
 print("\n" + "=" * 60)
 print("PASS %d / %d" % (len(PASS), len(PASS) + len(FAIL)))

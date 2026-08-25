@@ -70,6 +70,8 @@ def main() -> None:
     # 看起来像个开关其实不是（2026-08-24 自查发现）。
     ap.add_argument("--keep-going", action="store_true",
                     help="某步失败也继续往下跑（默认失败即停）")
+    ap.add_argument("--skip-external", action="store_true",
+                    help="跳过依赖外部资源的步骤（化合物结构 / 菌株基因组）")
     args = ap.parse_args()
     stop_on_error = not args.keep_going
 
@@ -88,6 +90,37 @@ def main() -> None:
         if args.start not in names:
             raise SystemExit(f"没有这一步：{args.start}")
         todo = STEPS[names.index(args.start):]
+    # ❗过滤必须放在 --only / --from 之后：那两个分支会整个重置 todo，
+    # 放前面的话 `--skip-external --from step4` 会把过滤悄悄丢掉。
+    if args.skip_external:
+        # 这四步要么要化合物结构（Morgan 指纹），要么要 1011 SNP 距离矩阵
+        drop = {"step4", "step6b", "step9", "step11"}
+        todo = [s for s in todo if s[0] not in drop]
+        print(f"[--skip-external] 跳过 {sorted(drop)}；"
+              "权威表会因缺 LOCO/菌株结果而拒绝收录，属预期")
+
+    # ---- 外部资源前置检查 ----
+    # ❗2026-08-25（GPT Pro R6 · L1-03）：此前干净 clone 照着 README 做，会一路跑到
+    # step6b / step9 / step11 才因为缺 compound_smiles.csv 或 SNP 矩阵而失败，
+    # 而那时已经烧掉半小时。失败要早、要指名道姓说缺什么、怎么补。
+    need_external = [k for k, _, _, _ in todo
+                     if k in ("step4", "step6b", "step9", "step11")]
+    if need_external:
+        import subprocess as _sp
+
+        chk = _sp.run([sys.executable, os.path.join(HERE, "setup_external.py"), "--check"],
+                      capture_output=True, text=True, encoding="utf-8")
+        if chk.returncode != 0:
+            print(chk.stdout)
+            print("=" * 88)
+            print("❗外部资源未就绪，以下步骤会失败：" + " / ".join(need_external))
+            print("   先跑一次（需联网，之后全程离线）：")
+            print("       python scripts/setup_external.py")
+            print("   只想跑不依赖外部资源的部分：")
+            print("       python scripts/run_all.py --skip-external")
+            print("=" * 88)
+            sys.exit(2)
+        print("[前置] 外部资源已就绪（1011 SNP 矩阵 + 54/54 化合物结构）", flush=True)
 
     os.makedirs(LOG_DIR, exist_ok=True)
     t_all = time.time()
