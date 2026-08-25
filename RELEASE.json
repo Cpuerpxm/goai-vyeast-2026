@@ -1,10 +1,10 @@
 {
   "remote": "https://github.com/Cpuerpxm/goai-vyeast-2026",
-  "tag": "semifinal-v3",
-  "commit": "490c72efe8acc211d57ded62b8981ad182c82f29",
-  "commit_short": "490c72efe",
-  "tree_digest": "7feee6eab9dbd687",
-  "released_at": "2026-08-25T18:21:12+08:00",
-  "n_published_files": 92,
-  "message": "R6 整改：指标 1 按手册改逐样本 + 撤销虚假上界 + 外部资源准备入口 + 三层闭源模型披露"
+  "tag": "semifinal-v4",
+  "commit": "d080df0b7130159feda62e34299a76f740a7eb74",
+  "commit_short": "d080df0b7",
+  "tree_digest": "cc5ed89e0cdc1f03",
+  "released_at": "2026-08-25T19:55:34+08:00",
+  "n_published_files": 93,
+  "message": "复赛整改：训练边界合规重跑（源码摘要 cc5ed89e0cdc1f03）"
 }
