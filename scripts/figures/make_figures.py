@@ -305,7 +305,11 @@ def fig5_loco():
              "标准化仅在外层训练折内拟合；λ 由内层二次留出选。\n"
              + ("两个阳性对照分工不同：走同一模块的验「模块还有容量」，"
                 "绕过模块的验「架构与评分口径给分」。" if orc_feat is not None else "")
-             + f"　仅上下文基线 fc_pcc = {base:.4f}。该路线上限 +{orc_self:.4f} 换算到总分约 "
+             # ❗这里原来写「该路线上限」。图例与坐标轴早已按 R6-L1-02 改成
+             # 「目标派生参考·非上界」，页脚却漏改，同一张图里自相矛盾，
+             # 而且留着的正是被撤回的那个说法。2026-08-25 目检发现。
+             + f"　仅上下文基线 fc_pcc = {base:.4f}。目标派生参考点 +{orc_self:.4f}"
+             f"（不是上界）换算到总分约 "
              f"+{0.25*orc_self:.4f}。数据：scripts/models/loco_response.py",
              fontsize=8, color="#555")
     save(fig, "F5_loco_structure")

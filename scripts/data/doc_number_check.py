@@ -67,7 +67,8 @@ LOG_DIRS = [
 # 不由权威表产生、但确有出处的数。键是数值，值是出处说明。
 # 往这里加数**必须**同时写清出处；写不出出处的数不该出现在交付文档里。
 EXTERNAL: dict[float, str] = {
-    61: "评分器单元测试项数 · scripts/scorer/test_metrics.py 运行输出",
+    65: "评分器单元测试项数 · scripts/scorer/test_metrics.py 运行输出（2026-08-25 为 65 项）",
+    61: "评分器单元测试项数的旧值，只出现在初赛冻结稿里，那份稿子不改",
     28: "对照匹配单元测试项数 · scripts/data/test_control_match.py 运行输出",
     8: "整化合物留出折数 · scripts/models/loco_response.py --folds 默认值",
     2231: "测试集中未见菌株的行数 · scripts/models/predict_test.py 运行输出",
