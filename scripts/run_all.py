@@ -55,6 +55,11 @@ STEPS = [
     # 自评必须排在 step10 之后：它读 test 真值，而门禁要求
     # `results/step10_submission/submission_manifest.json` 已经存在（模型已冻结）。
     ("step12", "test 真值自评（手册允许，不作排名依据）", "eval_test/self_eval.py", []),
+    # 数字防线放最后：前面每一步都跑完、日志都落盘了，才谈得上"文档里的数能追到出处"。
+    # 2026-08-25 补进流水线——此前这两个脚本谁都没调，第三道防线的默认目标还指着
+    # 初赛冻结稿，等于复赛材料一次没查过，而报告里写着"每个数都经程序化比对"。
+    ("stale", "作废数字是否还在流通", "data/stale_number_scan.py", []),
+    ("docnum", "文档数字能否追到出处", "data/doc_number_check.py", []),
 ]
 
 LOG_DIR = os.path.join(paths.RESULTS, "_run_logs")
@@ -114,7 +119,9 @@ def main() -> None:
             print(chk.stdout)
             print("=" * 88)
             print("❗外部资源未就绪，以下步骤会失败：" + " / ".join(need_external))
-            print("   先跑一次（需联网，之后全程离线）：")
+            print("   1) 先把随提交物交付的三个文件放进 data/external/：")
+            print("        compound_smiles.csv  compound_aliases.json  entity_alias.json")
+            print("   2) 再跑一次（需联网，只这一次；只剩 SNP 矩阵要下载）：")
             print("       python scripts/setup_external.py")
             print("   只想跑不依赖外部资源的部分：")
             print("       python scripts/run_all.py --skip-external")

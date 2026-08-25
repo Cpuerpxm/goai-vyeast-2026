@@ -14,7 +14,7 @@ GOAI 世界人工智能开源大赛 · 赛道三 AI for Research · 算法赛题
 ```bash
 # 1) 环境
 python -m venv .venv
-.venv\Scriptsctivate           # Windows PowerShell / CMD
+.venv\Scripts\activate           # Windows PowerShell / CMD
 # source .venv/bin/activate       # Linux / macOS
 pip install -r requirements.txt
 
@@ -22,21 +22,37 @@ pip install -r requirements.txt
 #    metadata_train_val.csv  proteome_raw_train_val.csv
 #    metadata_test.csv       proteome_raw_test.csv
 
-# 3) 外部资源准备（**需联网，只跑这一次**）
+# 3) 把随提交物交付的三个文件放进 data/external/
+#    compound_smiles.csv  compound_aliases.json  entity_alias.json
+#    （公开仓库按参赛协议不含赛事实体名，所以这几个走私有交付）
+
+# 4) 外部资源准备（**需联网，只跑这一次**；只剩 SNP 矩阵要下载）
 python scripts/setup_external.py
 
-# 4) 主流程（全程离线）
+# 5) 主流程（全程离线）
 python scripts/run_all.py         # 19 步，产出 prediction.csv
 ```
 
-⚠ 第 3 步不可省。仓库按参赛协议不含赛事化合物名单，所以 `compound_smiles.csv`
-必须在本机由 PubChem 公开转储重建；菌株基因组的 SNP 距离矩阵同理需要下载。
-`setup_external.py` 会下载、核对 SHA-256 并重建，`--check` 可先看现状。
-`run_all.py` 启动时也会先检查一遍，缺什么会立刻指名报出，而不是跑到一半才失败。
+第 3、4 步都不可省。`setup_external.py --check` 随时能看现状；
+`run_all.py` 启动时也会先查一遍，缺什么立刻指名报出，而不是跑到一半才失败。
 
-⚠ 其中 4 个化合物的名称在 PubChem 同义词表里查不到，需要一份 4 条的别名映射。
-该文件含赛事化合物名，按协议不进公开仓库，**随提交物一并交给组委会**；
-放到 `data/external/compound_aliases.json` 即可完整重建 54/54。
+**为什么化合物结构表是交付的而不是下载的。** 原本的设计是不交付、
+由本机从 PubChem 公开转储重建，这样谁都能独立生成。2026-08-25 做干净环境
+复现测试时发现这条路走不通：NCBI 的 `Compound/Extras/` 目录**滚动更新**，
+不是归档快照。我方 2026-08-05 取回的 `CID-Synonym-filtered.gz` 是
+964,716,803 字节，08-25 上游已是 968,456,680 字节、`Last-Modified` 就是当天早上，
+SHA-256 自然不符。**那一版取不回来了。**
+
+脚本里的校验闸门当场拒绝继续，而不是拿一份不同的输入接着跑。修法是把这份
+派生表直接交付并登记 SHA-256（`3863eed5d961856b…`），复现不再依赖会变的上游。
+`setup_external.py` 保留了从 PubChem 重建的回退路径，但会明确提示重建结果
+与本仓库报告的数字不保证一致——那时它读的已经是另一份输入了。
+
+⚠ 三个私有文件都含赛事实体名，按《选手参赛协议》第八条不进公开仓库，
+**随提交物一并交给组委会**（`scripts/make_private_bundle.py` 打的包，
+内含清单与校验值）。其中 `entity_alias.json` 是公开日志里
+`STRAIN_A` / `COMPOUND_01` 这类占位符到真实代号的对照，只用于读懂日志，
+不参与任何计算。
 
 `run_all.py` 的步骤清单用 `python scripts/run_all.py --list` 看，
 中途接续用 `--from step7`，单跑一步用 `--only step9`。
@@ -193,7 +209,8 @@ python scripts/audit/train_boundary_probe.py     # 训练边界合规探针（�
 菌株代号与化合物名换成稳定占位符（`STRAIN_A` / `COMPOUND_01`，编号与初赛公开版一致），
 再由 `scripts/data/pkg_leak_scan.py` 复扫一遍确认。源码本身不含任何赛事实体名。
 
-要复现需自行从组委会获取数据并置于 `data/raw/`，再跑一次 `scripts/setup_external.py`。
+要复现需自行从组委会获取赛事数据置于 `data/raw/`，把随提交物交付的三个私有文件
+置于 `data/external/`，再跑一次 `scripts/setup_external.py`（详见「快速开始」）。
 
 ## 许可证
 

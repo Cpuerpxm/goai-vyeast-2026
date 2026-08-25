@@ -12,13 +12,14 @@
 再把 tag 与 commit 写回项目根的 `RELEASE.json`。之后
 `data/provenance.release_info()` 读它，权威表 / 图 / prediction 就都指向同一个实例。
 
-发布前先脱敏，再过三道闸门，任何一道不过就中止：
+发布前先脱敏，再过四道闸门，任何一道不过就中止：
   0. 脱敏（`data/desensitize.py`）：菌株代号与化合物名换成稳定占位符。
      公开 = 面向不特定第三方分发，与「给顾问做技术把关」性质不同（CLAUDE.md R1）；
      初赛那版公开仓库就是这么处理的，占位符编号保持一致。
   1. 训练边界静态扫描（`audit/train_boundary_probe.py --static-only`）
   2. 赛事数据泄漏扫描（`data/pkg_leak_scan.py`，CLAUDE.md R1 强制）
   3. 待发布文件里不得出现 data/raw 下的任何文件
+  4. 待发布文本里不得有控制字符（2026-08-25 README 被 BEL 污染，肉眼没看出来）
 
 用法：
     python release.py --tag semifinal-v1                 # 只做本地演练，不推送
@@ -30,6 +31,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import io
 import os
 import shutil
 import subprocess
@@ -145,6 +147,36 @@ def gate_no_raw(stage_dir: str) -> None:
         raise SystemExit("[发布中止] 赛事原始数据混进了待发布目录")
 
 
+def gate_control_chars(stage_dir: str) -> None:
+    """待发布文本里不得有控制字符。
+
+    2026-08-25 实测：README 里那句激活虚拟环境的命令，路径分隔符后面跟 a
+    的那一段被写文件的工具当成转义序列还原成了 BEL（0x07）。肉眼几乎看不出，
+    评委复制这行会直接报错。这类损坏只能逐字节查，通读查不出来。
+    """
+    OK_CTRL = chr(10) + chr(9) + chr(13)      # 换行 / 制表 / 回车，正常文本里合法
+    exts = (".md", ".py", ".txt", ".json", ".yml", ".yaml", ".cfg", ".toml")
+    bad = []
+    for root, dirs, files in os.walk(stage_dir):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for f in files:
+            if not (f.endswith(exts) or f.startswith(".git")):
+                continue
+            fp = os.path.join(root, f)
+            try:
+                s = io.open(fp, encoding="utf-8").read()
+            except (UnicodeDecodeError, OSError):
+                continue
+            for i, ch in enumerate(s):
+                if (ord(ch) < 32 and ch not in OK_CTRL) or ord(ch) == 127:
+                    bad.append((os.path.relpath(fp, stage_dir),
+                                s.count(chr(10), 0, i) + 1, hex(ord(ch))))
+    print(f"  [{'FAIL' if bad else 'PASS'}] 待发布文本无控制字符"
+          + (f"：{bad[:5]}" if bad else ""))
+    if bad:
+        raise SystemExit("[发布中止] 待发布文件里有控制字符，多半是反斜杠被转义还原了")
+
+
 def sync(stage_dir: str) -> list:
     """把 PUBLISH_* 同步进 stage_dir，返回实际写入的相对路径清单。"""
     written = []
@@ -206,7 +238,7 @@ def main() -> None:
     print("=" * 88)
     print(f"发布 {args.tag} -> {REMOTE}")
     print("=" * 88)
-    print("\n[闸门 1/3] 训练边界静态扫描")
+    print("\n[闸门 1/4] 训练边界静态扫描")
     gate_boundary()
 
     work = args.workdir or os.path.join(
@@ -232,10 +264,12 @@ def main() -> None:
     print(f"  已登记：菌株 {len(alias['strains'])} 个 / 化合物 {len(alias['compounds'])} 个")
     print(f"  改写 {len(rep['per_file'])} 个文件，共 {sum(rep['total'].values())} 处")
 
-    print("\n[闸门 2/3] 赛事数据泄漏扫描")
+    print("\n[闸门 2/4] 赛事数据泄漏扫描")
     gate_leak(work)
-    print("\n[闸门 3/3] 待发布目录不含原始数据")
+    print("\n[闸门 3/4] 待发布目录不含原始数据")
     gate_no_raw(work)
+    print("\n[闸门 4/4] 待发布文本无控制字符")
+    gate_control_chars(work)
 
     status = run(["git", "status", "--porcelain"], cwd=work)
     print("\n[改动]")

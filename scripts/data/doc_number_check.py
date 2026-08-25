@@ -29,8 +29,39 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data import paths
 
 AUTH_JSON = os.path.join(paths.RESULTS, "AUTHORITATIVE.json")
+
+#: 默认核对**当前在投的交付物**。
+#:
+#: 2026-08-25 修正：此前默认只有 `12_初赛提交稿_定稿.md`，也就是说这道防线
+#: 从复赛开始就一次都没有对复赛材料跑过，而报告里写着"每个数都经程序化比对"。
+#: 更糟的是它对初赛冻结稿必然 FAIL——那份稿子 2026-08-07 已提交，
+#: 里面的数在当时是对的（0.4694 那一批），现在权威表已按修正后的评分器重算，
+#: 拿今天的表去核当日的稿，永远对不上。一个永远失败的检查等于没有检查。
+#:
+#: 所以：初赛冻结稿**不再默认核对**，它是历史存档，不得改动；
+#: 要核它请显式传路径，并自行判断该用哪一版权威表。
 DEFAULT_DOCS = [
-    os.path.join(paths.PROJECT_ROOT, "docs", "12_初赛提交稿_定稿.md"),
+    os.path.join(paths.PROJECT_ROOT, "docs", "20_复赛_实验结果报告.md"),
+    os.path.join(paths.PROJECT_ROOT, "docs", "21_复赛_科学意义阐释.md"),
+    os.path.join(paths.PROJECT_ROOT, "docs", "22_复赛_依赖披露.md"),
+    os.path.join(paths.PROJECT_ROOT, "README.md"),
+]
+
+#: 随仓库发布的运行日志，也是合法出处。
+#:
+#: 「每个数都能追到出处」这句话的真实含义就是这个：自评成绩来自自评日志、
+#: 破坏了多少单元格来自探针日志、两处违规各值多少分来自违规量化日志。
+#: 这些数**本来就不在**权威表里（权威表只收模型对比与不确定性），
+#: 硬把它们抄进 EXTERNAL 会立刻变旧，抄一次错一次。
+#: 认日志的代价是判据变松——日志里数很多。保住的部分是：**编造的数一个都匹配不上**。
+LOG_DIRS = [
+    os.path.join(paths.RESULTS, "logs"),
+    os.path.join(paths.RESULTS, "step0_compliance"),
+    os.path.join(paths.RESULTS, "step12_self_eval"),
+    os.path.join(paths.RESULTS, "step2_control_match"),
+    os.path.join(paths.RESULTS, "step3_diagnostics"),
+    os.path.join(paths.RESULTS, "step9_loco"),
+    os.path.join(paths.RESULTS, "step11_strain_transport"),
 ]
 
 # 不由权威表产生、但确有出处的数。键是数值，值是出处说明。
@@ -57,6 +88,60 @@ EXTERNAL: dict[float, str] = {
     0.272: "制备孔位在响应空间的残留 η² · diagnose_batch.py",
     4454: "测试样本数 · metadata_test.csv 行数",
     8958: "train_val 样本数 · 权威表 data.n_samples_train_val（此处冗余登记）",
+
+    # —— 2026-08-25 补登记。此前这道防线只对初赛冻结稿跑，复赛材料一次没查过，
+    #    所以下面这些数从来没被要求过出处。逐个写清来源，写不出的已从文中删除。
+
+    # 随机种子（README「随机种子与复现说明」表逐条列出，代码里写死不从命令行传）
+    20260805: "种子 · loco_response.py 外层折分配 / 共享参照置换 / 分组 bootstrap",
+    20260806: "种子 · scripts/scorer/evaluate.py 配对 bootstrap",
+    20260824: "种子 · strain_transport.py 随机坐标零假设 / train_boundary_probe.py 破坏",
+    1000: "种子基数 · loco_response.py shuffled-label 对照用 1000 + s",
+
+    # 外部资源的字节数与校验值（scripts/setup_external.py 里登记，
+    # data/external/PROVENANCE.json 落盘）
+    5092773: "1011 SNP 距离矩阵字节数 · setup_external.SNP_* 与 yeast1011/SOURCE.md",
+    1483381486: "PubChem CID-SMILES.gz 字节数 · setup_external.PUBCHEM 登记值",
+    964716803: "PubChem CID-Synonym-filtered.gz 我方 2026-08-05 取回时的字节数",
+    968456680: "同上文件 2026-08-25 上游现值 · curl -I 返回的 Content-Length",
+    8200: "compound_smiles.csv 字节数 · setup_external.SMILES_SHA 对应的那一份",
+
+    # 运行环境与耗时（scripts/data/provenance.py 打印，docs/22 §3.1 转录）
+    26200: "Windows 11 Pro 内部版本号 · provenance.py 环境快照",
+    2147: "早先记录的全流程耗时（60 次 bootstrap 时代），文中仅作对照说明",
+    5574: "现全流程耗时 · run_all.py 全量重跑 19/19 的总耗时",
+    3835: "权威表一步的耗时 · results/_run_logs 里 auth 步的实测值",
+
+    # 判别性单测的 fixture 读数（scripts/scorer/test_metrics.py 运行输出）
+    0.9997: "指标 1 判别性 fixture 的样本轴值 · test_metrics.py",
+    -0.0055: "同一 fixture 的蛋白轴值 · test_metrics.py",
+    0.4971: "同一 fixture 若做两轴平均会得到的值 · test_metrics.py",
+
+    # 更正前的旧值。文中故意保留作对照，说明这次改的是评分定义不是模型。
+    0.4694: "更正前的 C-free 总分（错误的两轴平均），文中标注为已作废",
+    0.2587: "更正前的全局均值谱总分，同上",
+    0.4768: "更正前全局均值谱被机械减半后的绝对保真度分量，同上",
+    0.4406: "更正前的满秩逐蛋白 ridge 总分，同上",
+    0.0011: "float32 常数判据修复前 B2 上下文残差的实测值 · 2026-08-05 运行记录",
+    0.502948: "§7.3 表里更正前的旧值，文中明写已被 0.529318 取代",
+    0.469388: "§7.3 表里更正前的旧值，文中明写已被 0.500797 取代",
+    0.033: "由上面两个旧值算出的差，文中作为**错误值**给出，正确值是 +0.0285",
+
+    # 文中明确标为**错误算法**的示例值，用来说明相关系数不可加
+    0.1020: "0.1845 − 0.0825 的差，文中作为**不能这样算**的反例给出",
+
+    # 手工可复算的两维反例（docs/21 §三，用于说明自身均值模板不是上界）
+    0.547: "两维反例中自身均值模板的平均 PCC = 11/(2√101)，可手算复核",
+    0.707: "同一反例中固定模板 (1,1)/√2 的平均 PCC = 1/√2，可手算复核",
+
+    # 预注册判据的阈值（scripts/models/strain_transport.py 里写死，实验前定）
+    0.015: "菌株搬运保留判据之一：drug_resid 增益门槛 · strain_transport.py",
+    0.003: "同上：总分增益门槛",
+    0.005: "同上：abs_r2 允许下降的上限",
+
+    # 文中由两个已登记值现算出来的量，给出算式以便读者复核
+    0.0285: "0.529318 − 0.500797，两处拟合行写法的 val total 之差（含 val 自身泄漏）",
+    0.636: "1322 / 2079，可算 Δ 的处理行里 test_strain_only 的占比",
 }
 
 # 文档里合法出现、但不是"指标数"的整数：年份、节号、权重百分比等。
@@ -76,7 +161,10 @@ def _norm(s: str) -> str:
     """
     for ch in ("−", "–", "—", "－"):
         s = s.replace(ch, "-")
-    return s
+    # 千分位分隔符也要归一化：文档排版写 1,640，脚本 print 出来是 1640，
+    # 不去掉逗号，同一个数会被当成两个，日志里明明有也判成查无出处
+    # （2026-08-25 实测：test 场景的四个样本数全部因此误报）。
+    return re.sub(r"(?<=\d),(?=\d{3}\b)", "", s)
 
 
 def walk_numbers(o, path: str = "") -> list[tuple[str, float]]:
@@ -100,7 +188,9 @@ def walk_numbers(o, path: str = "") -> list[tuple[str, float]]:
 def forms(val: float) -> set[str]:
     """一个数在文档里可能被写成的所有样子。"""
     f = set()
-    if float(val).is_integer() and abs(val) < 1e7:
+    # 上限原为 1e7，把文件字节数（9.6 亿）与形如 20260805 的种子挡在外面，
+    # 于是它们登记了也匹配不上。2026-08-25 提到 1e12。
+    if float(val).is_integer() and abs(val) < 1e12:
         n = int(val)
         f.add(str(n))
         f.add(f"{n:,}")
@@ -168,6 +258,30 @@ def candidates(txt: str) -> list[tuple[str, int]]:
     return out
 
 
+def log_forms() -> dict[str, str]:
+    """把已发布运行日志里出现过的数收成「写法 → 出处」。
+
+    只认日志里**原样出现**的写法，不做四舍五入外推——
+    否则"日志里有 0.51234"会连带认可文档里的 0.5123，那就等于放弃核对。
+    """
+    out: dict[str, str] = {}
+    for d in LOG_DIRS:
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            if not fn.endswith((".txt", ".log", ".json")):
+                continue
+            fp = os.path.join(d, fn)
+            rel = os.path.relpath(fp, paths.PROJECT_ROOT).replace(os.sep, "/")
+            try:
+                txt = open(fp, encoding="utf-8", errors="ignore").read()
+            except OSError:
+                continue
+            for raw, _ln in candidates(txt):
+                out.setdefault(_norm(raw), f"运行日志 {rel}")
+    return out
+
+
 def main() -> None:
     if not os.path.exists(AUTH_JSON):
         print(f"❗缺 {AUTH_JSON}，先跑 scripts/scorer/authoritative_results.py")
@@ -184,9 +298,16 @@ def main() -> None:
     for val, src in EXTERNAL.items():
         for f in forms(val):
             index.setdefault(f, src)
+    logs = log_forms()
+    n_log_only = 0
+    for f, src in logs.items():
+        if f not in index:
+            index[f] = src
+            n_log_only += 1
 
     fp = d.get("code_fingerprint", {})
     print(f"[反向核对] 注册 {len(reg)} 项权威值 + {len(EXTERNAL)} 项登记外部值"
+          f" + {n_log_only} 种只见于运行日志的写法"
           f"  → {len(index)} 种写法   git HEAD {fp.get('_git_head', '?')}")
     if "_missing" in d.get("loco", {}):
         print(f"  ⚠ 权威表未收录 LOCO：{d['loco']['_missing']}")

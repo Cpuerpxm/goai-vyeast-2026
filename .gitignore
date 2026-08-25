@@ -59,3 +59,6 @@ _logs/
 **/_logs/
 sessions.jsonl
 _pkg_for_gpt_pro/
+
+# 随提交物交给组委会的私有文件包（含赛事实体名，绝不入库）
+/_submission_private/

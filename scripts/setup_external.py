@@ -49,6 +49,12 @@ SNP_FILE = os.path.join(SNP_DIR, "1011DistanceMatrixBasedOnSNPs.tab.gz")
 SNP_URL = "http://1002genomes.u-strasbg.fr/files/1011DistanceMatrixBasedOnSNPs.tab.gz"
 SNP_SHA = "140da4e5193584c01e60c554a2ba5075a542d925be540afe7c7a92b7377af928"
 
+# 2026-08-25 实测：NCBI 的 Extras/ 目录**滚动更新**，不是归档快照。
+# 我方 2026-08-05 取回时 CID-Synonym-filtered.gz 是 964,716,803 字节；
+# 08-25 再取，上游报 968,456,680 字节、Last-Modified 就是当天早上，SHA-256 自然不符。
+# 也就是说**任何人都无法从这个 URL 重新取回我方用过的那一版**。
+# 所以化合物结构表改为「随提交物直接交付 + 校验哈希」为主路径，
+# 从 PubChem 重建降为回退路径，并明确告知重建结果可能与我方的不一致。
 PUBCHEM_DIR = os.path.join(paths.PROJECT_ROOT, "data", "_pubchem_dump")
 PUBCHEM = [
     ("CID-Synonym-filtered.gz",
@@ -61,6 +67,10 @@ PUBCHEM = [
 
 SMILES_CSV = os.path.join(paths.DATA_EXTERNAL, "compound_smiles.csv")
 ALIAS_JSON = os.path.join(paths.DATA_EXTERNAL, "compound_aliases.json")
+
+#: 我方实际用于产出报告数字的那一份化合物结构表的校验值。
+#: 评委拿到提交包后可据此确认拿对了文件。
+SMILES_SHA = "3863eed5d961856b5f0435e94382f760fd2eb7a24d0b3aa9429cf29a011e8ff9"
 
 #: 手册第 15 页的对照名，不算化合物实体
 _NON_COMPOUND = {"Water", "DMSO", "Quality Control"}
@@ -120,6 +130,11 @@ def compound_names() -> list:
     return sorted(names - _NON_COMPOUND)
 
 
+def smiles_matches_registered() -> bool:
+    """手上这份结构表是不是我方跑出那批数字时用的那一份。"""
+    return os.path.exists(SMILES_CSV) and sha256(SMILES_CSV) == SMILES_SHA
+
+
 def check_smiles() -> tuple[bool, list]:
     """返回 (是否完整, 未解析出结构的化合物名)。"""
     if not os.path.exists(SMILES_CSV):
@@ -152,6 +167,10 @@ def main() -> None:
     if args.check:
         print(f"\n1011 SNP 距离矩阵    : {'就绪' if have_snp else '缺失或校验不符'}")
         print(f"化合物 SMILES 表     : {'就绪（54/54）' if ok_smiles else f'缺 {len(missing)} 条'}")
+        if ok_smiles and not smiles_matches_registered():
+            print("   ⚠ 该表与登记校验值不符——多半是从更新过的 PubChem 转储重建的，")
+            print(f"     期望 {SMILES_SHA[:16]}…  实际 {sha256(SMILES_CSV)[:16]}…")
+            print("     能跑，但产出数字与我方报告的不保证一致。")
         if missing:
             print(f"  未解析：{missing}")
         print(f"别名映射             : {'存在' if os.path.exists(ALIAS_JSON) else '缺失（随提交物由组委会提供）'}")
@@ -166,14 +185,32 @@ def main() -> None:
         "Peter et al., Nature 2018, 556, 339-344"
 
     print("\n[2/3] 化合物名 → SMILES")
-    if ok_smiles and args.skip_pubchem:
-        print("  [跳过] compound_smiles.csv 已完整（54/54）")
+    if smiles_matches_registered():
+        print("  [就绪] compound_smiles.csv 与登记校验值一致")
+        print(f"         SHA-256 {SMILES_SHA[:16]}… —— 这就是我方跑出那批数字用的那一份")
+        rec["resources"]["compound_smiles.csv"] = {
+            "sha256": SMILES_SHA,
+            "status": "supplied_with_submission",
+            "note": "随提交物交付，非从公开地址取回；上游 PubChem 转储是滚动更新的",
+        }
+    elif ok_smiles and args.skip_pubchem:
+        print("  [跳过] compound_smiles.csv 已完整（54/54），但与登记校验值不符")
+        print(f"         期望 {SMILES_SHA[:16]}…  实际 {sha256(SMILES_CSV)[:16]}…")
+        print("         产出的数字与我方报告的不保证一致，不要据此声称复现成功。")
     elif args.skip_pubchem:
         print(f"  ⚠ --skip-pubchem 但表不完整，仍缺 {len(missing)} 条：{missing}")
     else:
+        print("  ⚠ 没有随提交物交付的 compound_smiles.csv，回退到从 PubChem 重建。")
+        print("     注意：NCBI 的 Extras/ 目录滚动更新，**取不回我方用过的那一版**")
+        print("     （实测 2026-08-05 是 964,716,803 字节，08-25 已变成 968,456,680）。")
+        print("     重建能跑通，但结果与我方报告的数字不保证一致。")
         for name, url, want in PUBCHEM:
+            # want 传 None：上游滚动更新，不能拿旧 SHA 当门槛，
+            # 只如实记录这次实际取到的是哪一版，以及我方当初用的是哪一版。
             rec["resources"][name] = fetch(url, os.path.join(PUBCHEM_DIR, name),
-                                           want, f"PubChem {name}")
+                                           None, f"PubChem {name}")
+            rec["resources"][name]["sha256_when_we_used_it"] = want
+            rec["resources"][name]["upstream_is_rolling"] = True
         print("  [解析] 调 resolve_smiles.py 本地重建（化合物名不出本机）")
         import subprocess
 
@@ -190,6 +227,8 @@ def main() -> None:
     print("\n[3/3] 完整性核对")
     print(f"  SNP 矩阵      : {'OK' if os.path.exists(SNP_FILE) else 'FAIL'}")
     print(f"  SMILES 54/54  : {'OK' if ok_smiles else f'缺 {len(missing)} 条'}")
+    print(f"  SMILES 校验    : "
+          f"{'与登记值一致' if smiles_matches_registered() else '**与登记值不符或缺失**'}")
     if not ok_smiles:
         print(f"    未解析：{missing}")
         if not os.path.exists(ALIAS_JSON):
