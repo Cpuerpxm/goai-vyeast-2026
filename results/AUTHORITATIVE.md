@@ -22,8 +22,8 @@
 
 ## 代码与发布指纹
 
-- 源码摘要 `tree_digest` = **`e8dc4ffcc3863f90`**（`scripts/` 下 44 个 .py，路径排序后逐个 SHA-256 再汇总）
-- 公开仓库发布状态：**已发布**，tag `semifinal-v5` · commit `1781a7e48515a528fa6f439a4c37550cf98bc347` · 与本次源码一致：是
+- 源码摘要 `tree_digest` = **`bbfb4014947da787`**（`scripts/` 下 44 个 .py，路径排序后逐个 SHA-256 再汇总）
+- 公开仓库发布状态：**已发布**，tag `semifinal-v6` · commit `8024d6a322bcd82c9d3c9d59bcf976f391d62d61` · 与本次源码一致：是
 - 运行环境：Python 3.13.12 · numpy 2.4.4 · pandas 3.0.2 · scipy 1.17.1 · scikit-learn 1.9.0 · rdkit 2024.09.5
 
 <details><summary>逐文件 SHA-256 前 16 位</summary>
@@ -51,7 +51,7 @@
 | `data/provenance.py` | `063995f20623437c` |
 | `data/resolve_smiles.py` | `eb74476cdac63ced` |
 | `data/split_guard.py` | `495e823d20e4bdca` |
-| `data/stale_number_scan.py` | `93cc016127773e32` |
+| `data/stale_number_scan.py` | `c0625ca397506e55` |
 | `data/strain_genome.py` | `4ccd0041680392d4` |
 | `data/test_control_match.py` | `5f7f03d99dff7ae2` |
 | `eval_test/self_eval.py` | `4f78f3c134cfbf07` |
