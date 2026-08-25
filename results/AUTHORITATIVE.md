@@ -22,8 +22,8 @@
 
 ## 代码与发布指纹
 
-- 源码摘要 `tree_digest` = **`7a771185da0ee780`**（`scripts/` 下 44 个 .py，路径排序后逐个 SHA-256 再汇总）
-- 公开仓库发布状态：**已发布**，tag `semifinal-v3` · commit `490c72efe8acc211d57ded62b8981ad182c82f29` · 与本次源码一致：**否**
+- 源码摘要 `tree_digest` = **`e8dc4ffcc3863f90`**（`scripts/` 下 44 个 .py，路径排序后逐个 SHA-256 再汇总）
+- 公开仓库发布状态：**已发布**，tag `semifinal-v5` · commit `1781a7e48515a528fa6f439a4c37550cf98bc347` · 与本次源码一致：是
 - 运行环境：Python 3.13.12 · numpy 2.4.4 · pandas 3.0.2 · scipy 1.17.1 · scikit-learn 1.9.0 · rdkit 2024.09.5
 
 <details><summary>逐文件 SHA-256 前 16 位</summary>
@@ -43,7 +43,7 @@
 | `audit/train_boundary_probe.py` | `899489c5441289af` |
 | `data/control_match.py` | `bf63ab055a32f7fd` |
 | `data/desensitize.py` | `30fc801e30ffdcfb` |
-| `data/doc_number_check.py` | `02e63df6a5337131` |
+| `data/doc_number_check.py` | `610fc4e408a4b7a6` |
 | `data/fix_table_widths.py` | `e7af1530135e473e` |
 | `data/loader.py` | `9551b0b77a3afeea` |
 | `data/paths.py` | `012dddce52c7f8ad` |
@@ -51,11 +51,11 @@
 | `data/provenance.py` | `063995f20623437c` |
 | `data/resolve_smiles.py` | `eb74476cdac63ced` |
 | `data/split_guard.py` | `495e823d20e4bdca` |
-| `data/stale_number_scan.py` | `f916541569dbde86` |
+| `data/stale_number_scan.py` | `93cc016127773e32` |
 | `data/strain_genome.py` | `4ccd0041680392d4` |
 | `data/test_control_match.py` | `5f7f03d99dff7ae2` |
 | `eval_test/self_eval.py` | `4f78f3c134cfbf07` |
-| `figures/make_figures.py` | `443ecf430bdd3697` |
+| `figures/make_figures.py` | `db743342e4ede95a` |
 | `make_private_bundle.py` | `aef0fc5213185bf1` |
 | `models/baseline_cfree.py` | `b0c6418afaa3f631` |
 | `models/baselines.py` | `8afc1137f5a9c326` |
@@ -67,7 +67,7 @@
 | `models/select_k0.py` | `a289a8ca02bd59a3` |
 | `models/strain_transport.py` | `84870811d44abe64` |
 | `release.py` | `6ff7b65d9738ff0b` |
-| `run_all.py` | `5d29fef1f6d1325d` |
+| `run_all.py` | `91348f81d25184ec` |
 | `scorer/authoritative_results.py` | `80d1bd285c47b73a` |
 | `scorer/config.py` | `97fc4845285ddf51` |
 | `scorer/evaluate.py` | `5b7ef2d00f41bd7d` |
