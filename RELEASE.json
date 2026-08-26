@@ -1,10 +1,10 @@
 {
   "remote": "https://github.com/Cpuerpxm/goai-vyeast-2026",
-  "tag": "semifinal-v6",
-  "commit": "8024d6a322bcd82c9d3c9d59bcf976f391d62d61",
-  "commit_short": "8024d6a32",
-  "tree_digest": "bbfb4014947da787",
-  "released_at": "2026-08-25T22:50:00+08:00",
+  "tag": "semifinal-v7",
+  "commit": "60207c26c5bbb74cec970f0206d74b017daa9028",
+  "commit_short": "60207c26c",
+  "tree_digest": "f4671d34135e1b42",
+  "released_at": "2026-08-26T20:02:36+08:00",
   "n_published_files": 93,
-  "message": "复赛整改：训练边界合规重跑（源码摘要 bbfb4014947da787）"
+  "message": "复赛整改：训练边界合规重跑（源码摘要 f4671d34135e1b42）"
 }
