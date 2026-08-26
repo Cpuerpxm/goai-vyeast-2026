@@ -5,9 +5,9 @@ GOAI 世界人工智能开源大赛 · 赛道三 AI for Research · 算法赛题
 给定酿酒酵母在特定菌株、化合物、培养基、温度、时间与测量上下文下的扰动蛋白质组数据，
 预测独立测试样本的完整 5,243 维 log2 蛋白丰度向量。
 
-> **复赛提交对应的 tag 是 `semifinal-v7`。** 仓库里还有 `semifinal-v1` 到 `v3`，
+> **复赛提交对应的 tag 是 `semifinal-v8`。** 仓库里还有 `semifinal-v1` 到 `v3`，
 > 那些是初赛与整改过程中的历史发布，**不是本次提交的对象**。
-> 核验请 clone `semifinal-v7`：该 tag 的 `results/AUTHORITATIVE.md` 里
+> 核验请 clone `semifinal-v8`：该 tag 的 `results/AUTHORITATIVE.md` 里
 > 登记的源码摘要、tag 与 commit 三项与仓库内容一致。
 
 **所有对外数字只有一个来源**：[`results/AUTHORITATIVE.md`](results/AUTHORITATIVE.md)，
