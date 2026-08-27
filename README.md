@@ -90,7 +90,7 @@ python scripts/models/predict_test.py
 | GPU | 不需要 |
 | 联网 | 主流程不需要。仅 `scripts/setup_external.py` 需联网一次，取回后登记校验值 |
 | 运行时商业 API / 闭源权重 | **无**。模型流水线不含任何 API 调用或第三方权重 |
-| 开发与审阅辅助 | **用了闭源模型**：代码与材料初稿由 Claude Code 编写，GPT Pro 会诊 6 轮、Gemini 3.7 Flash 语言评审 1 轮。逐项披露见[`docs/22_复赛_依赖披露.md`](docs/22_复赛_依赖披露.md) 第二节 |
+| 开发与审阅辅助 | **用了闭源模型**：代码与材料初稿由 Claude Code 编写，GPT Pro 会诊 6 轮。逐项披露见[`docs/22_复赛_依赖披露.md`](docs/22_复赛_依赖披露.md) 第二节 |
 
 外部公开资源（手册要求披露来源与版本）：
 [`data/external/yeast1011/SOURCE.md`](data/external/yeast1011/SOURCE.md)
