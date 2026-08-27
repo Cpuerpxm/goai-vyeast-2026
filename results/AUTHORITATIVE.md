@@ -22,8 +22,8 @@
 
 ## 代码与发布指纹
 
-- 源码摘要 `tree_digest` = **`f4671d34135e1b42`**（`scripts/` 下 44 个 .py，路径排序后逐个 SHA-256 再汇总）
-- 公开仓库发布状态：**已发布**，tag `semifinal-v7` · commit `60207c26c5bbb74cec970f0206d74b017daa9028` · 与本次源码一致：是
+- 源码摘要 `tree_digest` = **`d471a07afef25586`**（`scripts/` 下 44 个 .py，路径排序后逐个 SHA-256 再汇总）
+- 公开仓库发布状态：**已发布**，tag `semifinal-v8` · commit `61975f17df5e14bed90c603d14a7038117dd5b70` · 与本次源码一致：是
 - 运行环境：Python 3.13.12 · numpy 2.4.4 · pandas 3.0.2 · scipy 1.17.1 · scikit-learn 1.9.0 · rdkit 2024.09.5
 
 <details><summary>逐文件 SHA-256 前 16 位</summary>
@@ -68,7 +68,7 @@
 | `models/strain_transport.py` | `84870811d44abe64` |
 | `release.py` | `6ff7b65d9738ff0b` |
 | `run_all.py` | `91348f81d25184ec` |
-| `scorer/authoritative_results.py` | `80d1bd285c47b73a` |
+| `scorer/authoritative_results.py` | `081e17b5567c96ab` |
 | `scorer/config.py` | `97fc4845285ddf51` |
 | `scorer/evaluate.py` | `5b7ef2d00f41bd7d` |
 | `scorer/metrics.py` | `eb260768cfd3eb3e` |
@@ -229,7 +229,7 @@
 
 | 作废值 | 出处 | 现行值 |
 |---|---|---|
-| B0 abs_pcc 0.9535 | 未定义轴被静默踢出时的值 | 0.4768（undefined_axis=zero） |
+| B0 abs_pcc 0.4768 | 对指标 1 误用两轴平均并把未定义蛋白轴记 0 | 0.9535（手册第 17 页规定的逐样本口径） |
 | B2 ctx_resid 0.0011 | float32 舍入噪声被当真信号 | 0.0000 |
 | 修评分器前的整张基线表（B0 0.2928 / B2 0.2761 / B3 0.2479 / B4 0.3026 / α 0.3473） | 未定义轴与常数判据两个 bug 修复前 | 见 docs/06 §11.2 修正后表 |
 | 加权上限 ≈ 0.42 | 由 √ρ 推出，前提不成立（预测与真值共享对照噪声） | **已作废，不替换为任何单一数字** |
