@@ -33,7 +33,6 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data import loader, paths
-from data import feature_contract as fc
 from scorer.config import ScorerConfig
 from scorer.metrics import (combine, metric_absolute, metric_both_time, metric_dep,
                             metric_fc, metric_residual)
@@ -125,11 +124,6 @@ def build_context(
     z = np.load(delta_npz, allow_pickle=False)
     assert list(z["sample_ids"]) == list(meta["sample_ID"].astype(str)), "样本顺序不一致"
     D = z["delta"]
-
-    # ---- 4,422 蛋白建模空间（方向说明第 11 页；GPT Pro L1-00）----
-    # 必须在算 C / μ_ctx / μ_drug 之前切，否则参照均值仍落在 5,243 空间。
-    proteins, X, D = fc.apply(proteins, X, D, verbose=verbose)
-
     C = X - D                     # 对照谱可由此还原，step2 未重复存盘
     is_ctrl, is_qc = z["is_control"], z["is_qc"]
 

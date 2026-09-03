@@ -44,7 +44,6 @@ from data import loader, paths
 from data import feature_contract as fc
 from data import split_guard as sg
 from models.design import FEATURE_SETS, TIME_COL, encode, freeze, unseen_report
-from models.interaction_ab import onehot
 from models.baseline_cfree import ChunkedGram, masked_ridge_exact
 from models.lowrank import masked_pca
 from scorer import evaluate as ev
@@ -88,92 +87,15 @@ def predict(model: dict, Z: np.ndarray) -> np.ndarray:
 
 
 LAM_CTX_DEFAULT = 3.0      # step14 细扫最优
-LAM_DRUG_DEFAULT = 100.0   # step24 网格最优。加了板号之后这一档才安全：
-                           # 上午没有板号时它会让 drug_resid 跌破止损线
+LAM_DRUG_DEFAULT = 300.0   # step15 分块正则：唯一通过全部预注册止损门槛的取值
 LAM_PLATE_DEFAULT = 10.0   # step20 粗网格最优；3～30 之间很平，不再细扫以免在 val 上过拟合
 LAM_INT_DEFAULT = 30.0     # step24 网格：药物 × log 时间交互块
-LAM_CHEM_DEFAULT = 10.0    # step28 结构迁移的岭强度
-ALPHA_CHEM_DEFAULT = 1.0   # 结构迁移的全局收缩；λ_C∈[3,30]×α∈[1,2] 很平，取整
-LAM_SDM_DEFAULT = 100.0    # step31：菌株×来源×培养基（32 水平）
-LAM_SD_DEFAULT = 300.0     # step31：菌株×来源（16 水平）
-                           # 这两档是「总分最高且四道门槛全过」的组合；
-                           # λ3=30 那档总分 0.5622 更高，但 drug_resid 越线，不取
-PERT_COL = "perturbation_no_concentration"
-CHEM_DESC = ["MolWt", "MolLogP", "TPSA", "NumHDonors", "NumHAcceptors",
-             "NumRotatableBonds", "RingCount", "NumAromaticRings", "FractionCSP3",
-             "HeavyAtomCount", "NumHeteroatoms", "MolMR", "BertzCT", "Chi0n",
-             "Kappa2", "NumSaturatedRings", "NHOHCount", "NOCount", "LabuteASA", "qed"]
 PLATE_COL = "Yeast_cell_plate"
-
-
-def _chem_descriptors():
-    """本机 rdkit 现算 `data/external/compound_smiles.csv` 里每个化合物的描述符。
-
-    外部资源：PubChem 离线映射，已在依赖披露里；rdkit 本地计算，不联网。
-    """
-    import pandas as pd
-    from rdkit import Chem, RDLogger
-    from rdkit.Chem import Descriptors, QED
-    RDLogger.DisableLog("rdApp.*")
-    fn = {n: f for n, f in Descriptors.descList}
-    fn["qed"] = lambda m: QED.qed(m)
-    path = os.path.join(paths.DATA_EXTERNAL, "compound_smiles.csv")
-    if not os.path.exists(path):
-        return {}
-    sm = pd.read_csv(path)
-    out = {}
-    for name, smi in zip(sm["compound"].astype(str), sm["smiles"].astype(str)):
-        m = Chem.MolFromSmiles(smi)
-        if m is None:
-            continue
-        try:
-            out[name] = np.array([float(fn[d](m)) for d in CHEM_DESC], dtype=np.float64)
-        except Exception:
-            continue
-    return out
-
-
-def chem_transfer(meta, drugs, E, lam_c: float, alpha: float):
-    """给**未见药物**按分子结构补一份响应，返回 (n, p) 的增量与命中行掩码。
-
-    两步：先在训练折的已见药物上回归「描述符 → 该药的效应向量」（岭，强度 lam_c），
-    再把这张映射作用到未见药物自己的描述符上，整体乘收缩系数 alpha。
-
-    描述符的标准化参数只由**训练折出现过的药物**估，未见药物只被这套参数变换，
-    不参与估计。已见药物不动，一个字节都不改。
-    """
-    dmap = _chem_descriptors()
-    if not dmap:
-        return None, None, {}
-    fit = [d for d in drugs if d in dmap]
-    if len(fit) < len(CHEM_DESC) // 2:
-        return None, None, {"reason": f"训练折可用药物只有 {len(fit)} 个，放弃结构迁移"}
-    D = np.vstack([dmap[d] for d in fit])
-    dmu, dsd = D.mean(axis=0), D.std(axis=0)
-    dsd[dsd < 1e-9] = 1.0
-    D = (D - dmu) / dsd
-    E_fit = E[[drugs.index(d) for d in fit]]
-    C = np.linalg.solve(D.T @ D + lam_c * np.eye(len(CHEM_DESC)), D.T @ E_fit)
-
-    pert = meta[PERT_COL].astype(str).to_numpy()
-    hit = np.array([(x not in drugs) and (x in dmap) for x in pert])
-    add = np.zeros((len(pert), E.shape[1]), dtype=np.float64)
-    if hit.any():
-        Du = np.vstack([(dmap[x] - dmu) / dsd for x in pert[hit]])
-        add[hit] = alpha * (Du @ C)
-    info = {"n_fit_drugs": len(fit), "n_rows_transferred": int(hit.sum()),
-            "lam_chem": float(lam_c), "alpha_chem": float(alpha),
-            "descriptors": list(CHEM_DESC)}
-    return add, hit, info
 
 
 def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
                               lam_plate: float | None = None,
-                              lam_int: float | None = None,
-                              lam_chem: float | None = None,
-                              alpha_chem: float = 1.0,
-                              lam_sdm: float | None = None,
-                              lam_sd: float | None = None):
+                              lam_int: float | None = None):
     """满秩 C-free 岭回归 + 药物 one-hot 分块正则（2026-09-03 最优合规配置）。
 
     与低秩路径的两处差别，都来自 GPT Pro 2026-09-02 会诊：
@@ -208,19 +130,6 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
         tc = ((t_all - t_mean) / t_std).astype(np.float32)
         Z_tv = np.hstack([Z_tv, Z_tv[:, -n_drug:] * tc[:, None]])
         blocks.append(np.full(n_drug, float(lam_int)))
-    # 菌株 × 上下文交互。词表只由拟合行冻结，未见组合整行 0，退回主效应。
-    inter_specs = []
-    if lam_sdm is not None:
-        inter_specs.append((["Strains", "data_source", "Medium"], float(lam_sdm)))
-    if lam_sd is not None:
-        inter_specs.append((["Strains", "data_source"], float(lam_sd)))
-    inter_levels = []
-    for cols_i, lm in inter_specs:
-        M, lv = onehot(ctx.meta, cols_i, tr)
-        Z_tv = np.hstack([Z_tv, M])
-        blocks.append(np.full(len(lv), lm))
-        inter_levels.append((cols_i, lv, lm))
-
     lam_vec = np.concatenate(blocks)
 
     if Z_tv.shape[1] > 120:
@@ -239,18 +148,6 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
         return np.nan_to_num(y, nan=fallback, posinf=fallback, neginf=fallback).astype(np.float32)
 
     y_tv = _pred(Z_tv)
-
-    # 未见药物的结构迁移：已见药物的预测一个字节不动，只补未见的那些行
-    chem_info = {}
-    E = W[n_ctx + n_plate: n_ctx + n_plate + n_drug]
-    if lam_chem is not None:
-        add, hit, chem_info = chem_transfer(ctx.meta, spec["drugs"], E, lam_chem, alpha_chem)
-        if add is not None and hit.any():
-            y_tv = (y_tv.astype(np.float64) + add).astype(np.float32)
-            print(f"  train_val 里按结构补了 {int(hit.sum())} 行（未见药物且有 SMILES）")
-        elif chem_info.get("reason"):
-            print(f"  结构迁移跳过：{chem_info['reason']}")
-
     val_scores = ev.flatten(ev.evaluate(y_tv, ctx, ctx.rows(ev.VAL_SPLITS), cfg))
 
     meta_te = loader.load_metadata("test")
@@ -262,17 +159,6 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
         t_te = np.log1p(meta_te[TIME_COL].to_numpy(dtype=np.float64))
         tc_te = ((t_te - t_mean) / t_std).astype(np.float32)
         Z_te = np.hstack([Z_te, Z_te[:, -n_drug:] * tc_te[:, None]])
-    for cols_i, lv, _ in inter_levels:
-        key = meta_te[cols_i].astype(str).agg("\x1f".join, axis=1).to_numpy()
-        idx = {v: i for i, v in enumerate(lv)}
-        Mte = np.zeros((len(key), len(lv)), dtype=np.float32)
-        for i, v in enumerate(key):
-            j = idx.get(v)
-            if j is not None:
-                Mte[i, j] = 1.0
-        hit_i = float((Mte.sum(axis=1) > 0).mean())
-        print(f"  test 命中 {'×'.join(cols_i)} 已见组合的比例 {hit_i:.1%}")
-        Z_te = np.hstack([Z_te, Mte])
     if Z_te.shape[1] != Z_tv.shape[1]:
         raise AssertionError(
             f"设计矩阵列数不一致 train={Z_tv.shape[1]} test={Z_te.shape[1]}——词表没冻住")
@@ -283,12 +169,6 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
         if hit < 1.0:
             print(f"  ⚠ 有 {int((1-hit)*len(meta_te))} 行板号未见，该块归零")
     y_te = _pred(Z_te)
-    if lam_chem is not None and chem_info and not chem_info.get("reason"):
-        add_te, hit_te, _ = chem_transfer(meta_te, spec["drugs"], E, lam_chem, alpha_chem)
-        if add_te is not None and hit_te.any():
-            y_te = (y_te.astype(np.float64) + add_te).astype(np.float32)
-            print(f"  test 里按结构补了 {int(hit_te.sum())} 行（未见药物且有 SMILES）")
-            chem_info["n_rows_transferred_test"] = int(hit_te.sum())
 
     model = {"mu": mu, "W": W, "fallback": fallback, "dead_cols": dead,
              "n_obs": np.isfinite(ctx.X[tr]).sum(axis=0),
@@ -298,9 +178,7 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
              "lam_drug": float(lam_drug),
              "lam_int": (float(lam_int) if lam_int is not None else None),
              "n_int_cols": (int(n_drug) if lam_int is not None else 0),
-             "time_center": t_mean, "time_scale": t_std, "chem": chem_info,
-             "interactions": [{"cols": c, "n_levels": len(lv), "lam": lm}
-                              for c, lv, lm in inter_levels]}
+             "time_center": t_mean, "time_scale": t_std}
     return y_te, meta_te, spec, model, val_scores, y_tv
 
 
@@ -344,14 +222,6 @@ def main() -> None:
                     help="板号块的正则强度；传 0 表示不加板号")
     ap.add_argument("--lam-int", type=float, default=LAM_INT_DEFAULT,
                     help="药物×log时间交互块的正则强度；传 0 表示不加交互")
-    ap.add_argument("--lam-chem", type=float, default=LAM_CHEM_DEFAULT,
-                    help="未见药物结构迁移的岭强度；传 0 表示不做结构迁移")
-    ap.add_argument("--alpha-chem", type=float, default=ALPHA_CHEM_DEFAULT,
-                    help="结构迁移的全局收缩系数")
-    ap.add_argument("--lam-sdm", type=float, default=LAM_SDM_DEFAULT,
-                    help="菌株×来源×培养基交互块；传 0 表示不加")
-    ap.add_argument("--lam-sd", type=float, default=LAM_SD_DEFAULT,
-                    help="菌株×来源交互块；传 0 表示不加")
     ap.add_argument("--self-check", action="store_true")
     args = ap.parse_args()
 
@@ -363,18 +233,13 @@ def main() -> None:
     if args.model == "fullrank":
         lp = args.lam_plate if args.lam_plate and args.lam_plate > 0 else None
         li = args.lam_int if args.lam_int and args.lam_int > 0 else None
-        lch = args.lam_chem if args.lam_chem and args.lam_chem > 0 else None
-        sdm = args.lam_sdm if args.lam_sdm and args.lam_sdm > 0 else None
-        sd = args.lam_sd if args.lam_sd and args.lam_sd > 0 else None
         y_te, meta_te, spec, model, f, y_tv = build_submission_fullrank(
-            ctx, args.lam_ctx, args.lam_drug, lp, li, lch, args.alpha_chem, sdm, sd)
+            ctx, args.lam_ctx, args.lam_drug, lp, li)
         cfg_desc = (f"满秩精确岭  λ ctx/plate/drug/int = {args.lam_ctx:g}/"
                     f"{model['lam_plate'] if model['lam_plate'] else '-'}/"
                     f"{args.lam_drug:g}/{model['lam_int'] if model['lam_int'] else '-'}"
                     f"  设计 {model['n_ctx_cols']}+{model['n_plate_cols']}"
-                    f"+{model['n_drug_cols']}+{model['n_int_cols']}"
-                    + "".join(f"+{d['n_levels']}" for d in model.get("interactions", []))
-                    + " 列")
+                    f"+{model['n_drug_cols']}+{model['n_int_cols']} 列")
     else:
         y_te, meta_te, spec, model, f, y_tv = build_submission(ctx, args.k0, args.lam)
         cfg_desc = f"低秩  K0={args.k0}  lam={args.lam}"
@@ -468,7 +333,6 @@ def main() -> None:
         "model": args.model, "k0": args.k0, "lam": args.lam,
         "lam_ctx": model.get("lam_ctx"), "lam_plate": model.get("lam_plate"),
         "lam_drug": model.get("lam_drug"), "lam_int": model.get("lam_int"),
-        "chem": model.get("chem"), "interactions": model.get("interactions"),
         "cat_cols": list(CAT_COLS), "fit_split": "train",
         "design_spec": spec,
     }, ensure_ascii=False, sort_keys=True)
@@ -494,8 +358,6 @@ def main() -> None:
         "n_int_cols": model.get("n_int_cols"),
         "time_center": model.get("time_center"),
         "time_scale": model.get("time_scale"),
-        "chem_transfer": model.get("chem"),
-        "interactions": model.get("interactions"),
         "fit_split": "train",
         "n_fit_rows": n_fit,
         "design_spec": spec,

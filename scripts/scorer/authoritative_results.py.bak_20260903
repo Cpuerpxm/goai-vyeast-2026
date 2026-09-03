@@ -168,57 +168,15 @@ def baselines_and_cfree(ctx, cfg) -> dict:
         y_full, y_best, ctx, val, n_boot=500, cfg=cfg)
 
     # 分场景：总分是四类 val 混在一起的加权和，看不出模型在哪类外推上垮。
-    # 2026-09-03 起提交模型换成了满秩那条线，这里改名为 lowrank_by_split，
-    # 只作当时的记录；对外要引的逐 split 在 res["submitted_model"]["by_split"]。
+    # 评审必问"S2 未见菌株占测试集一半，你在那上面怎么样"，故单列。
     by = ev.evaluate_by_split(y_best, ctx, cfg)
-    out["lowrank_by_split"] = {
+    out["submitted_model_by_split"] = {
         r["split"]: {k: (None if k in ("split",) else
                          (int(r[k]) if k.startswith("n") else float(r[k])))
                      for k in by.columns if k != "split" and r[k] == r[k]}
         for _, r in by.iterrows()
     }
     return out
-
-
-def submitted_model(ctx, cfg) -> dict:
-    """现场重跑**当前提交模型**，六项与逐 split 都由这里出。
-
-    2026-09-03 之前提交的是「元数据 → 16 维低秩瓶颈 → 全维解码」，总分 0.5008。
-    当天做了六轮消融，架构换成满秩逐蛋白岭回归加四组结构块，总分 0.5610。
-    低秩那条线的数字仍留在下面的选秩曲线与配对 bootstrap 里，作为当时的记录，
-    但它已经不是提交模型，本节才是。
-    """
-    from models.predict_test import (build_submission_fullrank, LAM_CTX_DEFAULT,
-                                     LAM_PLATE_DEFAULT, LAM_DRUG_DEFAULT, LAM_INT_DEFAULT,
-                                     LAM_CHEM_DEFAULT, ALPHA_CHEM_DEFAULT,
-                                     LAM_SDM_DEFAULT, LAM_SD_DEFAULT)
-    _, _, _, model, f, y_tv = build_submission_fullrank(
-        ctx, LAM_CTX_DEFAULT, LAM_DRUG_DEFAULT, LAM_PLATE_DEFAULT, LAM_INT_DEFAULT,
-        LAM_CHEM_DEFAULT, ALPHA_CHEM_DEFAULT, LAM_SDM_DEFAULT, LAM_SD_DEFAULT)
-    by = ev.evaluate_by_split(y_tv, ctx, cfg)
-    return {
-        "scores": f,
-        "by_split": {
-            r["split"]: {k: (int(r[k]) if k.startswith("n") else float(r[k]))
-                         for k in by.columns if k != "split" and r[k] == r[k]}
-            for _, r in by.iterrows()
-        },
-        "design": {
-            "上下文（截距/菌株/培养基/温度/来源/仪器/log时间三次项）": model["n_ctx_cols"],
-            "板号 Yeast_cell_plate": model["n_plate_cols"],
-            "药物 one-hot": model["n_drug_cols"],
-            "药物 × 中心化 log 时间": model["n_int_cols"],
-            **{"×".join(d["cols"]): d["n_levels"] for d in model.get("interactions", [])},
-        },
-        "lambdas": {
-            "上下文": model["lam_ctx"], "板号": model["lam_plate"],
-            "药物": model["lam_drug"], "药物×时间": model["lam_int"],
-            **{"×".join(d["cols"]): d["lam"] for d in model.get("interactions", [])},
-        },
-        "chem_transfer": {k: v for k, v in (model.get("chem") or {}).items()
-                          if k != "descriptors"},
-        "fit_rows": int(sg.train_rows(ctx.meta).sum()),
-    }
 
 
 def control_match_and_reliability(ctx, cfg) -> dict:
@@ -412,8 +370,6 @@ def main() -> None:
     }
     print("[权威表] 算基线阶梯与 C-free …")
     res["models"] = baselines_and_cfree(ctx, cfg)
-    print("[权威表] 重跑当前提交模型 …")
-    res["submitted_model"] = submitted_model(ctx, cfg)
     print("[权威表] 算对照匹配与复制可靠性 …")
     res["control_and_reliability"] = control_match_and_reliability(ctx, cfg)
     print("[权威表] 算混杂与缺失 …")
@@ -481,38 +437,8 @@ def main() -> None:
         if k.startswith("_"):
             continue
         L.append(f"| {k} | {v:.4%} |" if "rate" in k else f"| {k} | {v} |")
-    sm = res["submitted_model"]
-    sf = sm["scores"]
-    L += ["", "## 当前提交模型（官方四类 val，本方复刻评分器）", "",
-          "| 项 | 值 |", "|---|---|",
-          f"| **总分** | **{sf['total']:.4f}** |",
-          f"| 绝对保真度 abs_pcc / abs_r2 | {sf['abs_pcc']:.4f} / {sf['abs_r2']:.4f} |",
-          f"| 匹配对照原始 FC | {sf['fc_pcc']:.4f} |",
-          f"| 上下文均值残差 | {sf['ctx_resid']:.4f} |",
-          f"| 药物均值残差 | {sf['drug_resid']:.4f} |",
-          f"| 双重未知 / 时间外推 | {sf['both_time']:.4f} |",
-          f"| 拟合行 | {sm['fit_rows']}（只有 split_final=='train'） |", "",
-          "设计矩阵分块：", "", "| 块 | 列数 | λ |", "|---|---|---|"]
-    for blk, n in sm["design"].items():
-        lam_v = sm["lambdas"].get(blk)
-        L.append(f"| {blk} | {n} | {lam_v:g} |" if lam_v is not None else f"| {blk} | {n} | — |")
-    ct = sm["chem_transfer"]
-    if ct:
-        L += ["", f"未见药物结构迁移：训练折可用药物 {ct.get('n_fit_drugs')} 个，"
-              f"λ_C={ct.get('lam_chem'):g}，α={ct.get('alpha_chem'):g}，"
-              f"覆盖 train_val {ct.get('n_rows_transferred')} 行 / "
-              f"test {ct.get('n_rows_transferred_test')} 行。"]
-    L += ["", "逐 split：", "", "| split | n | n_treated | abs_pcc | abs_r2 | fc_pcc |",
-          "|---|---|---|---|---|---|"]
-    for k, v in sm["by_split"].items():
-        L.append(f"| {k} | {v.get('n')} | {v.get('n_treated','—')} | "
-                 f"{v.get('abs_pcc',float('nan')):.4f} | {v.get('abs_r2',float('nan')):.4f} | "
-                 + (f"{v['fc_pcc']:.4f} |" if "fc_pcc" in v else "— |"))
-
     m = res["models"]
-    L += ["", "## 基线与消融（官方四类 val，本方复刻评分器）", "",
-          "> 下面「低秩 K0=16」一行是 2026-09-03 之前的提交模型，现已被上一节取代，"
-          "保留作当时的记录。", "",
+    L += ["", "## 模型分数（官方四类 val，本方复刻评分器）", "",
           "### 需读测试对照者（oracle 诊断，**不可提交**）", "",
           "| 模型 | total | abs_pcc | abs_r2 | fc_pcc |", "|---|---|---|---|---|"]
     for k, f in m["oracle_C_based"].items():

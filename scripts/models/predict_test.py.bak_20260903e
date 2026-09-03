@@ -44,7 +44,6 @@ from data import loader, paths
 from data import feature_contract as fc
 from data import split_guard as sg
 from models.design import FEATURE_SETS, TIME_COL, encode, freeze, unseen_report
-from models.interaction_ab import onehot
 from models.baseline_cfree import ChunkedGram, masked_ridge_exact
 from models.lowrank import masked_pca
 from scorer import evaluate as ev
@@ -94,10 +93,6 @@ LAM_PLATE_DEFAULT = 10.0   # step20 粗网格最优；3～30 之间很平，不�
 LAM_INT_DEFAULT = 30.0     # step24 网格：药物 × log 时间交互块
 LAM_CHEM_DEFAULT = 10.0    # step28 结构迁移的岭强度
 ALPHA_CHEM_DEFAULT = 1.0   # 结构迁移的全局收缩；λ_C∈[3,30]×α∈[1,2] 很平，取整
-LAM_SDM_DEFAULT = 100.0    # step31：菌株×来源×培养基（32 水平）
-LAM_SD_DEFAULT = 300.0     # step31：菌株×来源（16 水平）
-                           # 这两档是「总分最高且四道门槛全过」的组合；
-                           # λ3=30 那档总分 0.5622 更高，但 drug_resid 越线，不取
 PERT_COL = "perturbation_no_concentration"
 CHEM_DESC = ["MolWt", "MolLogP", "TPSA", "NumHDonors", "NumHAcceptors",
              "NumRotatableBonds", "RingCount", "NumAromaticRings", "FractionCSP3",
@@ -171,9 +166,7 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
                               lam_plate: float | None = None,
                               lam_int: float | None = None,
                               lam_chem: float | None = None,
-                              alpha_chem: float = 1.0,
-                              lam_sdm: float | None = None,
-                              lam_sd: float | None = None):
+                              alpha_chem: float = 1.0):
     """满秩 C-free 岭回归 + 药物 one-hot 分块正则（2026-09-03 最优合规配置）。
 
     与低秩路径的两处差别，都来自 GPT Pro 2026-09-02 会诊：
@@ -208,19 +201,6 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
         tc = ((t_all - t_mean) / t_std).astype(np.float32)
         Z_tv = np.hstack([Z_tv, Z_tv[:, -n_drug:] * tc[:, None]])
         blocks.append(np.full(n_drug, float(lam_int)))
-    # 菌株 × 上下文交互。词表只由拟合行冻结，未见组合整行 0，退回主效应。
-    inter_specs = []
-    if lam_sdm is not None:
-        inter_specs.append((["Strains", "data_source", "Medium"], float(lam_sdm)))
-    if lam_sd is not None:
-        inter_specs.append((["Strains", "data_source"], float(lam_sd)))
-    inter_levels = []
-    for cols_i, lm in inter_specs:
-        M, lv = onehot(ctx.meta, cols_i, tr)
-        Z_tv = np.hstack([Z_tv, M])
-        blocks.append(np.full(len(lv), lm))
-        inter_levels.append((cols_i, lv, lm))
-
     lam_vec = np.concatenate(blocks)
 
     if Z_tv.shape[1] > 120:
@@ -262,17 +242,6 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
         t_te = np.log1p(meta_te[TIME_COL].to_numpy(dtype=np.float64))
         tc_te = ((t_te - t_mean) / t_std).astype(np.float32)
         Z_te = np.hstack([Z_te, Z_te[:, -n_drug:] * tc_te[:, None]])
-    for cols_i, lv, _ in inter_levels:
-        key = meta_te[cols_i].astype(str).agg("\x1f".join, axis=1).to_numpy()
-        idx = {v: i for i, v in enumerate(lv)}
-        Mte = np.zeros((len(key), len(lv)), dtype=np.float32)
-        for i, v in enumerate(key):
-            j = idx.get(v)
-            if j is not None:
-                Mte[i, j] = 1.0
-        hit_i = float((Mte.sum(axis=1) > 0).mean())
-        print(f"  test 命中 {'×'.join(cols_i)} 已见组合的比例 {hit_i:.1%}")
-        Z_te = np.hstack([Z_te, Mte])
     if Z_te.shape[1] != Z_tv.shape[1]:
         raise AssertionError(
             f"设计矩阵列数不一致 train={Z_tv.shape[1]} test={Z_te.shape[1]}——词表没冻住")
@@ -298,9 +267,7 @@ def build_submission_fullrank(ctx, lam_ctx: float, lam_drug: float,
              "lam_drug": float(lam_drug),
              "lam_int": (float(lam_int) if lam_int is not None else None),
              "n_int_cols": (int(n_drug) if lam_int is not None else 0),
-             "time_center": t_mean, "time_scale": t_std, "chem": chem_info,
-             "interactions": [{"cols": c, "n_levels": len(lv), "lam": lm}
-                              for c, lv, lm in inter_levels]}
+             "time_center": t_mean, "time_scale": t_std, "chem": chem_info}
     return y_te, meta_te, spec, model, val_scores, y_tv
 
 
@@ -348,10 +315,6 @@ def main() -> None:
                     help="未见药物结构迁移的岭强度；传 0 表示不做结构迁移")
     ap.add_argument("--alpha-chem", type=float, default=ALPHA_CHEM_DEFAULT,
                     help="结构迁移的全局收缩系数")
-    ap.add_argument("--lam-sdm", type=float, default=LAM_SDM_DEFAULT,
-                    help="菌株×来源×培养基交互块；传 0 表示不加")
-    ap.add_argument("--lam-sd", type=float, default=LAM_SD_DEFAULT,
-                    help="菌株×来源交互块；传 0 表示不加")
     ap.add_argument("--self-check", action="store_true")
     args = ap.parse_args()
 
@@ -364,17 +327,13 @@ def main() -> None:
         lp = args.lam_plate if args.lam_plate and args.lam_plate > 0 else None
         li = args.lam_int if args.lam_int and args.lam_int > 0 else None
         lch = args.lam_chem if args.lam_chem and args.lam_chem > 0 else None
-        sdm = args.lam_sdm if args.lam_sdm and args.lam_sdm > 0 else None
-        sd = args.lam_sd if args.lam_sd and args.lam_sd > 0 else None
         y_te, meta_te, spec, model, f, y_tv = build_submission_fullrank(
-            ctx, args.lam_ctx, args.lam_drug, lp, li, lch, args.alpha_chem, sdm, sd)
+            ctx, args.lam_ctx, args.lam_drug, lp, li, lch, args.alpha_chem)
         cfg_desc = (f"满秩精确岭  λ ctx/plate/drug/int = {args.lam_ctx:g}/"
                     f"{model['lam_plate'] if model['lam_plate'] else '-'}/"
                     f"{args.lam_drug:g}/{model['lam_int'] if model['lam_int'] else '-'}"
                     f"  设计 {model['n_ctx_cols']}+{model['n_plate_cols']}"
-                    f"+{model['n_drug_cols']}+{model['n_int_cols']}"
-                    + "".join(f"+{d['n_levels']}" for d in model.get("interactions", []))
-                    + " 列")
+                    f"+{model['n_drug_cols']}+{model['n_int_cols']} 列")
     else:
         y_te, meta_te, spec, model, f, y_tv = build_submission(ctx, args.k0, args.lam)
         cfg_desc = f"低秩  K0={args.k0}  lam={args.lam}"
@@ -468,7 +427,7 @@ def main() -> None:
         "model": args.model, "k0": args.k0, "lam": args.lam,
         "lam_ctx": model.get("lam_ctx"), "lam_plate": model.get("lam_plate"),
         "lam_drug": model.get("lam_drug"), "lam_int": model.get("lam_int"),
-        "chem": model.get("chem"), "interactions": model.get("interactions"),
+        "chem": model.get("chem"),
         "cat_cols": list(CAT_COLS), "fit_split": "train",
         "design_spec": spec,
     }, ensure_ascii=False, sort_keys=True)
@@ -495,7 +454,6 @@ def main() -> None:
         "time_center": model.get("time_center"),
         "time_scale": model.get("time_scale"),
         "chem_transfer": model.get("chem"),
-        "interactions": model.get("interactions"),
         "fit_split": "train",
         "n_fit_rows": n_fit,
         "design_spec": spec,

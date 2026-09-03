@@ -273,10 +273,10 @@ def _model_signature(spec: dict, model: dict, y_te: np.ndarray) -> dict:
         a = np.ascontiguousarray(arr)
         return hashlib.sha256(a.tobytes()).hexdigest()[:16]
 
-    # 满秩那条线没有 U（它不走低秩瓶颈），所以按存在与否取。
-    out = {
+    return {
         "design_spec": json.dumps(spec, ensure_ascii=False, sort_keys=True),
         "mu": h(model["mu"]),
+        "U": h(model["U"]),
         "W": h(model["W"]),
         "dead_cols": h(model["dead_cols"]),
         "n_dead": int(model["dead_cols"].sum()),
@@ -284,17 +284,12 @@ def _model_signature(spec: dict, model: dict, y_te: np.ndarray) -> dict:
         "prediction_test": h(y_te),
         "prediction_shape": list(y_te.shape),
     }
-    if "U" in model:
-        out["U"] = h(model["U"])
-    return out
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--k0", type=int, default=16, help="仅 --lowrank 时用")
-    ap.add_argument("--lam", type=float, default=30.0, help="仅 --lowrank 时用")
-    ap.add_argument("--lowrank", action="store_true",
-                    help="改测 2026-09-03 之前那条低秩线；默认测当前提交模型")
+    ap.add_argument("--k0", type=int, default=16)
+    ap.add_argument("--lam", type=float, default=30.0)
     ap.add_argument("--static-only", action="store_true")
     ap.add_argument("--selftest", action="store_true", help="只跑扫描器的阳性/阴性对照")
     args = ap.parse_args()
@@ -340,19 +335,7 @@ def main() -> None:
     a("-" * 92)
     a("二 · 经验探针：破坏非 train 行后重跑，逐位比对")
     a("-" * 92)
-    from models.predict_test import build_submission, build_submission_fullrank
-    from models.predict_test import (LAM_CTX_DEFAULT, LAM_PLATE_DEFAULT, LAM_DRUG_DEFAULT,
-                                     LAM_INT_DEFAULT, LAM_CHEM_DEFAULT, ALPHA_CHEM_DEFAULT,
-                                     LAM_SDM_DEFAULT, LAM_SD_DEFAULT)
-
-    # ❗探针必须测**当前提交的那条线**，否则合规检验和交付物对不上。
-    # 2026-09-03 架构更替后这里跟着换；--lowrank 留着复现当时的旧结论。
-    def _fit(c):
-        if args.lowrank:
-            return build_submission(c, args.k0, args.lam)
-        return build_submission_fullrank(
-            c, LAM_CTX_DEFAULT, LAM_DRUG_DEFAULT, LAM_PLATE_DEFAULT, LAM_INT_DEFAULT,
-            LAM_CHEM_DEFAULT, ALPHA_CHEM_DEFAULT, LAM_SDM_DEFAULT, LAM_SD_DEFAULT)
+    from models.predict_test import build_submission
 
     print("[探针] 载入原始数据 …")
     ctx = ev.build_context(verbose=False)
@@ -360,7 +343,7 @@ def main() -> None:
     a(f"  train 行 {int(tr.sum())} / 全表 {ctx.n}；被破坏的非 train 行 {int((~tr).sum())}")
 
     print("[探针] 第 1 遍：原始数据拟合 …")
-    y_a, meta_te, spec_a, model_a, val_a, _ = _fit(ctx)
+    y_a, meta_te, spec_a, model_a, val_a, _ = build_submission(ctx, args.k0, args.lam)
     sig_a = _model_signature(spec_a, model_a, y_a)
 
     print("[探针] 破坏全部非 train 行 …")
@@ -378,18 +361,14 @@ def main() -> None:
         sys.exit(2)
 
     print("[探针] 第 2 遍：破坏后的数据拟合 …")
-    y_b, _, spec_b, model_b, val_b, _ = _fit(ctx_bad)
+    y_b, _, spec_b, model_b, val_b, _ = build_submission(ctx_bad, args.k0, args.lam)
     sig_b = _model_signature(spec_b, model_b, y_b)
 
     a("")
     a(f"  {'比对项':<26}{'原始':>20}{'破坏后':>20}{'':>8}")
     ok = True
-    # 比对项按两次签名的**交集**取：满秩那条线没有 U，写死会 KeyError。
-    keys = [k for k in ["design_spec", "mu", "U", "W", "dead_cols", "n_dead", "fallback",
-                        "prediction_test", "prediction_shape"]
-            if k in sig_a and k in sig_b]
-    assert set(sig_a) == set(sig_b), f"两次签名字段不一致：{set(sig_a) ^ set(sig_b)}"
-    for k in keys:
+    for k in ["design_spec", "mu", "U", "W", "dead_cols", "n_dead", "fallback",
+              "prediction_test", "prediction_shape"]:
         same = sig_a[k] == sig_b[k]
         ok &= same
         va, vb = str(sig_a[k]), str(sig_b[k])
@@ -436,19 +415,17 @@ def main() -> None:
 
     try:
         _pt.loader.load_metadata = _patched
-        y_c, _, spec_c, model_c, _, _ = _fit(ctx)
+        y_c, _, spec_c, model_c, _, _ = build_submission(ctx, args.k0, args.lam)
     finally:
         _pt.loader.load_metadata = _orig
 
     sig_c = _model_signature(spec_c, model_c, y_c)
     model_same = all(sig_a[k] == sig_c[k] for k in
-                     ("design_spec", "mu", "U", "W", "dead_cols", "n_dead", "fallback")
-                     if k in sig_a and k in sig_c)
+                     ("design_spec", "mu", "U", "W", "dead_cols", "n_dead", "fallback"))
     pred_changed = sig_a["prediction_test"] != sig_c["prediction_test"]
     a("")
     a(f"  破坏 test 元数据 {len(meta_te_bad)} 行（类别字段换假水平、时间换乱数）")
-    a(f"  设计 spec / mu / W / 保留蛋白列表（低秩线另含 U）："
-      f"{'逐位相同' if model_same else '**有变化**'}")
+    a(f"  设计 spec / mu / U / W / 保留蛋白列表：{'逐位相同' if model_same else '**有变化**'}")
     a(f"  test 预测：{'变了（本该如此，输入变了）' if pred_changed else '**没变，反常**'}")
     ok_test = model_same and pred_changed
     a(f"  -> {'PASS' if ok_test else 'FAIL'}：模型参数与 test 元数据无关，"
