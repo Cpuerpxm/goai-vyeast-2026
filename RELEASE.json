@@ -1,10 +1,10 @@
 {
   "remote": "https://github.com/Cpuerpxm/goai-vyeast-2026",
-  "tag": "semifinal-v8",
-  "commit": "61975f17df5e14bed90c603d14a7038117dd5b70",
-  "commit_short": "61975f17d",
-  "tree_digest": "d471a07afef25586",
-  "released_at": "2026-08-26T21:13:39+08:00",
-  "n_published_files": 93,
-  "message": "复赛整改：训练边界合规重跑（源码摘要 d471a07afef25586）"
+  "tag": "semifinal-v9",
+  "commit": "afd5a9770e2f49c137ed9eaf2093c9b983cd39f8",
+  "commit_short": "afd5a9770",
+  "tree_digest": "56e2f1188483ea8a",
+  "released_at": "2026-09-03T15:38:22+08:00",
+  "n_published_files": 126,
+  "message": "架构更替：培养板号 + 菌株x上下文交互 + 未见药物结构迁移，官方四类 val 0.5610（源码摘要 56e2f1188483ea8a）"
 }
